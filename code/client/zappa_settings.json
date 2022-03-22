@@ -1,0 +1,10 @@
+{
+    "dev": {
+        "django_settings": "project.settings",
+        "profile_name": "mate",
+        "project_name": "mate",
+        "runtime": "python3.7",
+        "aws_region" : "us-east-2",
+        "s3_bucket": "zappa-a1w674h2v"
+    }
+}

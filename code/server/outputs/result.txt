@@ -1,0 +1,410 @@
+Calling main
+ID: 4BCJZ9
+Email: "nlvargas@uc.cl"
+Students number: 847
+Groups number: 120
+Min. students number: 6
+Max. students number: 9
+Same day: false
+Attributes: {
+    "Sexo": {
+        "M": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "F": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        }
+    },
+    "Programa": {
+        "S/I": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "PARTICULAR": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "COMPARTIDO": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "#N/A": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "GRATUITO": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "MUNICIPAL": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        }
+    },
+    "Ingreso": {
+        "T&I > SPC": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "PDT": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "NACE < BPC": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "HIJOS": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "T&I < BPC": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "ESPECIAL": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "EME": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "PACE": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "NACE > SPC": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "PIANE": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "INTERCULTURAL": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "BEA": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "DD": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        }
+    },
+    "Region": {
+        "0": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "XII": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "XIV": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "NO": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "XIII": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "III": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "I": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "XVI": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "X": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "VIII": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "II": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "#N/A": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "VII": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "IX": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "VI": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "XI": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "V": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        },
+        "IV": {
+            "min": 0,
+            "max": 9,
+            "solo": false
+        }
+    }
+}
+Options: [
+    "Sexo:M",
+    "Sexo:F",
+    "Programa:S/I",
+    "Programa:PARTICULAR",
+    "Programa:COMPARTIDO",
+    "Programa:#N/A",
+    "Programa:GRATUITO",
+    "Programa:MUNICIPAL",
+    "Ingreso:T&I > SPC",
+    "Ingreso:PDT",
+    "Ingreso:NACE < BPC",
+    "Ingreso:HIJOS",
+    "Ingreso:T&I < BPC",
+    "Ingreso:ESPECIAL",
+    "Ingreso:EME",
+    "Ingreso:PACE",
+    "Ingreso:NACE > SPC",
+    "Ingreso:PIANE",
+    "Ingreso:INTERCULTURAL",
+    "Ingreso:BEA",
+    "Ingreso:DD",
+    "Region:0",
+    "Region:XII",
+    "Region:XIV",
+    "Region:NO",
+    "Region:XIII",
+    "Region:III",
+    "Region:I",
+    "Region:XVI",
+    "Region:X",
+    "Region:VIII",
+    "Region:II",
+    "Region:#N/A",
+    "Region:VII",
+    "Region:IX",
+    "Region:VI",
+    "Region:XI",
+    "Region:V",
+    "Region:IV"
+]
+Fixed day: {}
+Preferences: {
+    "1": {
+        "min": 0,
+        "max": 120
+    },
+    "2": {
+        "min": 0,
+        "max": 120
+    },
+    "3": {
+        "min": 0,
+        "max": 120
+    },
+    "4": {
+        "min": 0,
+        "max": 120
+    },
+    "5": {
+        "min": 0,
+        "max": 120
+    },
+    "6": {
+        "min": 0,
+        "max": 120
+    },
+    "7": {
+        "min": 0,
+        "max": 120
+    },
+    "8": {
+        "min": 0,
+        "max": 120
+    },
+    "9": {
+        "min": 0,
+        "max": 120
+    },
+    "10": {
+        "min": 0,
+        "max": 120
+    }
+}
+Preferences number: 10
+Modules: []
+Capacity: {}
+
+
+Using license file /home/GUROBI.LIC/gurobi.lic
+Set parameter TokenServer to value n0
+Changed value of parameter MIPGap to 0.01
+   Prev: 0.0001  Min: 0.0  Max: inf  Default: 0.0001
+Changed value of parameter TimeLimit to 3240.0
+   Prev: inf  Min: 0.0  Max: inf  Default: inf
+Gurobi Optimizer version 9.1.2 build v9.1.2rc0 (linux64)
+Thread count: 32 physical cores, 64 logical processors, using up to 32 threads
+Optimize a model with 514543 rows, 464719 columns and 3881731 nonzeros
+Model fingerprint: 0x7f2a062b
+Variable types: 0 continuous, 464719 integer (48010 binary)
+Coefficient statistics:
+  Matrix range     [1e+00, 1e+03]
+  Objective range  [1e+03, 1e+03]
+  Bounds range     [1e+00, 1e+00]
+  RHS range        [1e+00, 1e+02]
+Presolve removed 56421 rows and 51611 columns (presolve time = 6s) ...
+Presolve removed 96021 rows and 91211 columns (presolve time = 10s) ...
+Presolve removed 99621 rows and 91211 columns (presolve time = 15s) ...
+Presolve removed 99621 rows and 91211 columns (presolve time = 20s) ...
+Presolve removed 99621 rows and 91211 columns (presolve time = 25s) ...
+Presolve removed 99621 rows and 91211 columns (presolve time = 30s) ...
+Presolve removed 99621 rows and 91211 columns (presolve time = 35s) ...
+Presolve removed 99621 rows and 91211 columns (presolve time = 40s) ...
+Presolve removed 112821 rows and 91211 columns (presolve time = 45s) ...
+Presolve removed 112821 rows and 91211 columns (presolve time = 50s) ...
+Presolve removed 112821 rows and 91211 columns (presolve time = 56s) ...
+Presolve removed 114021 rows and 92411 columns (presolve time = 60s) ...
+Presolve removed 114021 rows and 92411 columns (presolve time = 65s) ...
+Presolve removed 114021 rows and 92411 columns (presolve time = 72s) ...
+Presolve removed 114021 rows and 92411 columns (presolve time = 75s) ...
+Presolve removed 114021 rows and 92411 columns
+Presolve time: 75.18s
+Presolved: 400522 rows, 372308 columns, 2530828 nonzeros
+Variable types: 0 continuous, 372308 integer (255812 binary)
+
+Deterministic concurrent LP optimizer: primal simplex, dual simplex, and barrier
+Showing barrier log only...
+
+Root barrier log...
+
+Elapsed ordering time = 5s
+Elapsed ordering time = 10s
+Elapsed ordering time = 15s
+Ordering time: 17.04s
+
+Barrier statistics:
+ Dense cols : 1201
+ AA' NZ     : 3.697e+06
+ Factor NZ  : 1.017e+07 (roughly 400 MBytes of memory)
+ Factor Ops : 2.522e+09 (less than 1 second per iteration)
+ Threads    : 29
+
+                  Objective                Residual
+Iter       Primal          Dual         Primal    Dual     Compl     Time
+   0   6.36590459e+05 -1.79521285e+09  1.30e+04 2.54e-02  4.12e+04   176s
+   1   8.69622370e+05 -1.58962968e+09  6.75e+00 1.00e-09  1.41e+03   217s
+   2   3.75335197e+05 -4.43379971e+07  4.67e-01 2.86e-04  3.95e+01   265s
+   3   1.23690638e+05 -1.73261682e+05  1.40e-03 4.21e-04  2.61e-01   326s
+   4   4.20242125e+04  3.68113254e+04  6.59e-06 3.33e-12  4.57e-03   374s
+   5   4.20007045e+04  4.19996209e+04  9.89e-12 5.93e-08  9.49e-07   409s
+   6   4.20000000e+04  4.20000000e+04  1.05e-13 1.84e-12  1.62e-12   445s
+
+Barrier solved model in 6 iterations and 445.83 seconds
+Optimal objective 4.20000000e+04
+
+
+Root crossover log...
+
+     499 DPushes remaining with DInf 0.0000000e+00               455s
+       0 DPushes remaining with DInf 0.0000000e+00               455s
+
+  134212 PPushes remaining with PInf 0.0000000e+00               456s
+   23014 PPushes remaining with PInf 0.0000000e+00               478s
+   14827 PPushes remaining with PInf 0.0000000e+00               481s
+    1537 PPushes remaining with PInf 0.0000000e+00               488s
+     802 PPushes remaining with PInf 0.0000000e+00               493s
+     136 PPushes remaining with PInf 0.0000000e+00               497s
+       0 PPushes remaining with PInf 0.0000000e+00               497s
+
+  Push phase complete: Pinf 0.0000000e+00, Dinf 0.0000000e+00    498s
+
+
+Root simplex log...
+
+Iteration    Objective       Primal Inf.    Dual Inf.      Time
+  134714    4.2000000e+04   0.000000e+00   0.000000e+00    498s
+  134714    4.2000000e+04   0.000000e+00   0.000000e+00    500s
+Concurrent spin time: 11.45s
+
+Solved with barrier
+
+Root relaxation: objective 4.200000e+04, 134714 iterations, 404.82 seconds
+
+    Nodes    |    Current Node    |     Objective Bounds      |     Work
+ Expl Unexpl |  Obj  Depth IntInf | Incumbent    BestBd   Gap | It/Node Time
+
+     0     0 42000.0000    0 2201          - 42000.0000      -     -  898s
+H    0     0                    42000.000000 42000.0000  0.00%     -  923s
+     0     0 42000.0000    0 2201 42000.0000 42000.0000  0.00%     -  923s
+
+Explored 1 nodes (149835 simplex iterations) in 923.71 seconds
+Thread count was 32 (of 64 available processors)
+
+Solution count 1: 42000 
+
+Optimal solution found (tolerance 1.00e-02)
+Best objective 4.200000000000e+04, best bound 4.200000000000e+04, gap 0.0000%
