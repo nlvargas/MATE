@@ -72,8 +72,6 @@ code/
                 for large jobs, or is imported directly by backend/ for small ones
 docs/
   ARCHITECTURE.md   Technical deep-dive + screenshots
-  legacy/           Original developer/user manuals (Spanish, pre-dates this
-                     revamp) — kept for reference, superseded by ARCHITECTURE.md
 ```
 
 ## Running locally
