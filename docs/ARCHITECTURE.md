@@ -103,29 +103,30 @@ result arrives later, by email, as a spreadsheet.
 
 The CP-SAT formulation lives in `code/server/optimization_cpsat.py`'s
 `_build_model()` (starts at line 157). It's a straight translation of an
-original Gurobi MIP formulation, written up in the repository's
-`Manual de desarrollador.pdf` (pages 3–5, in Spanish); `optimization.py`
+original Gurobi MIP formulation from the project's earlier design
+documentation (not included in this repo); `optimization.py`
 (the Gurobi backend) and `optimization_cpsat.py` share their non-solver
 logic through `code/server/model_common.py` so the two backends can't drift
 apart on what a "group" or a "topic family" means.
 
 ### Sets
 
-| Manual (Spanish) | Meaning | Code |
+| Notation | Meaning | Code |
 |---|---|---|
-| `I` — tipos de alumnos | student types | `T` (confusingly, code calls this `T`, not `I` — see the callout below) |
+| `I` | student types | `T` (confusingly, code calls this `T`, not `I` — see the callout below) |
 | `NA ⊆ I` | types with unknown/unanswered preferences | `not_answered` |
-| `R` — características | attribute *values* (e.g. `"Gender:Male"`) | `A` (`params["A"]`), attribute key strings `f"{attr}:{value}"` |
-| `G` — grupos | candidate groups (topic × section slot) | `G` — built by `model_common.preprocessing()` |
-| `T` — temas | topics | `preferences` (the list of ranked topic names) |
-| `M` — módulos | sections/time-slots | `D` / `modules` |
-| `G_t`, `G_m`, `G_tm` | groups by topic / by section / by topic-and-section | `G_t`, `G_d`, `G_td` — from `model_common.create_subsets()` |
+| `R` | attribute *values* (e.g. `"Gender:Male"`) | `A` (`params["A"]`), attribute key strings `f"{attr}:{value}"` |
+| `G` | candidate groups (topic × section slot) | `G` — built by `model_common.preprocessing()` |
+| `T` | topics | `preferences` (the list of ranked topic names) |
+| `M` | sections/time-slots | `D` / `modules` |
+| `G_t`, `G_m`, `G_tm` | groups by topic / by section / by topic-and-section | `G_t`, `G_d`, `G_td` — built directly by `model_common.preprocessing()` |
 
-**Naming collision to flag explicitly**: the manual's `I` (student types) is
-called `T` in the code, and the manual's `T` (topics) is called `preferences`
-in the code. This documentation uses the manual's original Spanish-derived
-notation (`I` for types, `T` for topics) when discussing the math below, but
-quotes the actual code identifiers (`T`, `preferences`) whenever citing code.
+**Naming collision to flag explicitly**: the original formulation's `I`
+(student types) is called `T` in the code, and its `T` (topics) is called
+`preferences` in the code. This documentation uses the original formulation's
+letter notation (`I` for types, `T` for topics) when discussing the math
+below, but quotes the actual code identifiers (`T`, `preferences`) whenever
+citing code.
 
 ### Key decision variable: `y[i, g]`
 
@@ -181,7 +182,7 @@ slightly cheaper average across everyone else.
 
 ### Cross-check against the original formulation
 
-The Gurobi manual's constraints (a) through (q) all have a direct counterpart
+The original Gurobi formulation's constraints (a) through (q) all have a direct counterpart
 in `_build_model()`: (a) `sum(y[i,g] for g in G) == students_types[i]["students"]`,
 (b) `y[i,g] <= upper_number * w[g]`, (c) `sum(w[g]) == groups_number`,
 (d) the `lower_number`/`upper_number` group-size band, (e) the per-topic
@@ -272,10 +273,10 @@ feasible or good, so a rough-but-cheap answer is enough to be useful.
 `_greedy_hint()` takes `G`, `T`, `G_t`, `G_d`, `G_td` as parameters rather
 than recomputing them — these are the same structures `_build_model()`
 already computed once (returned as part of its `ctx`). This wasn't always
-true: earlier, `_greedy_hint()` independently re-ran
-`preprocessing()`/`create_subsets()` a second time on every solve, silently
-duplicating work `_build_model()` had already done. That redundant call was
-found and fixed this session, commit `85af88a`.
+true: earlier, `_greedy_hint()` independently re-ran `preprocessing()` a
+second time on every solve, silently duplicating work `_build_model()` had
+already done. That redundant call was found and fixed this session, commit
+`85af88a`.
 
 **Benchmark results** (from the function's own docstring and the commit
 history, `381cb87` / `85af88a`): the hint is applied unconditionally — it
