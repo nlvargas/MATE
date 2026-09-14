@@ -6,6 +6,9 @@
         "runtime": "python3.12",
         "aws_region": "us-east-2",
         "s3_bucket": "zappa-a1w674h2v",
-        "slim_handler": true
+        "slim_handler": true,
+        "callbacks": {
+            "zip": "deploy_hooks.pre_zip"
+        }
     }
 }

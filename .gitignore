@@ -37,3 +37,9 @@ code/server/outputs/*
 code/server/params/*
 !code/server/outputs/.gitkeep
 !code/server/params/.gitkeep
+
+# Generated at deploy time by code/client/deploy_hooks.py (zappa's "zip"
+# callback) -- a copy of code/server/model_common.py so it ships inside the
+# Lambda package. code/server/model_common.py is the real source; this copy
+# is never hand-edited and shouldn't be committed.
+code/client/model_common.py

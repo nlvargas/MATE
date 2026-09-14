@@ -260,6 +260,23 @@ DJANGO_DEBUG=0 AWS_PROFILE=mate python manage.py collectstatic --noinput
   package (mainly `ortools`, which pulls in `pandas`/`numpy`) exceeds
   Lambda's 250MB unzipped code-size limit, so Zappa uploads the real
   package to S3 and unpacks it into `/tmp` at cold start instead.
+- **`code/client/model_common.py`** (gitignored, not something you edit)
+  is generated automatically on every deploy by `deploy_hooks.py`, wired
+  in via `zappa_settings.json`'s `"callbacks": {"zip": ...}`. It's a copy
+  of `code/server/model_common.py`, needed because Zappa only zips up
+  `code/client/` — the directory it's run from — so the *sibling*
+  `code/server/` directory (where the real `model_common.py` lives, shared
+  with the Gurobi/cluster backend) would otherwise never make it into the
+  Lambda package, even though `backend/utils.py` and
+  `backend/optimization_cpsat.py` both import it. If that import fails,
+  Django fails to even load its URLconf, so *every* route 500s — including
+  a bare `GET /`, which is exactly the failure Zappa's own post-deploy
+  health check exercises. You shouldn't need to do anything for this —
+  it runs automatically as part of `zappa update dev` — but if you ever
+  see `ModuleNotFoundError: No module named 'model_common'` in
+  `zappa tail dev`, that's this callback not having run (e.g. because
+  something invoked Zappa's packaging without going through the `zip`
+  callback).
 - Large-roster (offline) runs need the cluster SSH credentials set as
   Lambda environment variables too, if you're using that path in production.
 
