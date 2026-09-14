@@ -55,8 +55,8 @@ warm-start heuristic and its benchmarks, and the sync/async split).
   cluster via SSH (large rosters).
 - **Frontend**: React (bundled with Webpack) served by the Django template
   in `code/client/frontend/`.
-- **CI**: GitHub Actions runs the Django system check, imports the solver
-  module, and lints + production-builds the frontend on every push/PR
+- **CI**: GitHub Actions runs the Django system check, the solver's test
+  suite, and lints + production-builds the frontend on every push/PR
   (`.github/workflows/ci.yml`).
 
 ## Project layout
@@ -129,10 +129,20 @@ NODE_OPTIONS=--openssl-legacy-provider npm run build
 With the backend running (`DEBUG=1`), open `http://127.0.0.1:8000/` — the
 wizard should load: Setup → Upload → Configure & run → Results.
 
-### 3. (Optional) the solver worker directly
+### 3. The solver worker directly (and its tests)
 
 `code/server/` has its own `requirements.txt` (just `ortools`) if you want
-to run or test the CP-SAT model standalone, outside the Django app.
+to run the CP-SAT model standalone, outside the Django app. Its test suite
+(`code/server/tests/` -- preprocessing, model building/solving, and
+postprocessing) needs `requirements-dev.txt` instead:
+
+```
+cd code/server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
 
 ## Environment variables
 

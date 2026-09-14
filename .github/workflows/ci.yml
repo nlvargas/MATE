@@ -15,16 +15,18 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: pip install -r code/client/requirements.txt
+        run: |
+          pip install -r code/client/requirements.txt
+          pip install -r code/server/requirements-dev.txt
       - name: Django system check
         working-directory: code/client
         env:
           DJANGO_SECRET_KEY: ci-only-not-a-real-secret
           DJANGO_DEBUG: "1"
         run: python manage.py check
-      - name: Import the CP-SAT solver module
+      - name: Solver tests (preprocessing, model solving, postprocessing)
         working-directory: code/server
-        run: python -c "import optimization_cpsat"
+        run: pytest tests/ -v
 
   frontend:
     name: Frontend (React)
