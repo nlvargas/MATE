@@ -6,6 +6,7 @@ from django.conf import settings
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
+from . import msft_auth
 from .utils import (
     create_students,
     create_parms,
@@ -147,8 +148,21 @@ def run_model(request):
             "students_preferences_number": students_preferences_number,
         }, status=status.HTTP_200_OK)
 
-    # Large problem: hand off to the cluster, same as before -- results are
-    # emailed once the Slurm job finishes.
+    # Large problem: hand off to the cluster -- a shared, licensed resource
+    # (Gurobi seat + compute on the PUC cluster), so this branch alone is
+    # gated on a signed-in @uc.cl/@ing.puc.cl session (see msft_auth.py).
+    # The sync path above never reaches this check: it's free, open-source,
+    # and runs on this app's own Lambda, so it stays open to anyone.
+    if not msft_auth.session_email_allowed(request.session):
+        return Response({
+            "error": "auth_required",
+            "message": (
+                "This roster is large enough to need the cluster. Sign in "
+                "with a uc.cl or ing.puc.cl account to submit it."
+            ),
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    # Results are emailed once the Slurm job finishes.
     ID = id_generator()
     data["ID"] = ID
     data_string = json.dumps(data)

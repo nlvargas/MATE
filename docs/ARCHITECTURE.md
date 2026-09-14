@@ -403,6 +403,31 @@ students -- a small attribute/topic space collapses a large synthetic
 roster into few types and reports spurious infeasibility that's an
 artifact of the test data, not a real scaling limit.)
 
+**Who can reach the cluster path**: the sync path above is open to anyone
+-- free, open-source, runs on this app's own Lambda, nothing to protect.
+The cluster path spends a shared, licensed resource (the PUC cluster's
+Gurobi seat and compute), so `run_model`'s large-roster branch checks
+`msft_auth.session_email_allowed()` before calling `upload_parms()`,
+requiring a signed-in `@uc.cl`/`@ing.puc.cl` account (`backend/msft_auth.py`,
+`backend/auth_views.py`). Two choices worth calling out:
+
+- **Gating the branch, not the app.** A visitor with no university
+  affiliation can still run the small/sync demo end-to-end (exactly what
+  this project's own demo script does) -- only a roster big enough to need
+  the cluster hits the gate.
+- **App-level domain check, not Azure tenant restriction.** The Azure app
+  registration accepts sign-in from any organizational (work/school)
+  Microsoft account, and this app checks the signed-in email's domain
+  itself, rather than registering as single-tenant inside uc.cl's own
+  Entra tenant. The latter would be a stronger guarantee but needs
+  app-registration rights inside that specific tenant; the former needs
+  only an ordinary Microsoft/Azure account to set up, at the cost of
+  trusting the ID token's `email`/`preferred_username` claim as the
+  boundary (the standard trust boundary for this kind of sign-in). Session
+  storage is a signed cookie (`SESSION_ENGINE = signed_cookies` in
+  `settings.py`) rather than the Django session default, since this app
+  has no database at all (`DATABASES = {}`) for the default engine to use.
+
 ## 9. Demo
 
 A local `mate_demo_roster.xlsx` (48 fake students) was uploaded through the

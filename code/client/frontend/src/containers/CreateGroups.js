@@ -8,7 +8,7 @@ import Spinner from '../components/Spinner';
 
 export default function CreateGroups(props) {
   const { step, setStep, attributes, preferences, modules,
-          preferencesNumber, options, students, setRunResult, goResults } = props;
+          preferencesNumber, options, students, setRunResult, goResults, auth } = props;
   const { t, tf } = useI18n();
 
   const [cookies, setCookie] = useCookies(['groupsNumber', 'minStudents', 'maxStudents', 'email']);
@@ -187,7 +187,15 @@ export default function CreateGroups(props) {
         goResults();
       })
       .catch((err) => {
-        setRunError(t("uploadError"));
+        // The cluster-submission gate (backend/msft_auth.py) answers with
+        // this shape specifically so the UI can point at sign-in instead
+        // of showing a generic failure -- everything else still falls
+        // back to the generic message.
+        if (err.response && err.response.status === 403 && err.response.data && err.response.data.error === "auth_required") {
+          setRunError(t("clusterAuthRequired"));
+        } else {
+          setRunError(t("uploadError"));
+        }
         // eslint-disable-next-line no-console
         console.error(err);
       })
@@ -367,8 +375,19 @@ export default function CreateGroups(props) {
             <div className={`exec-opt ${execPath === "sync" ? "active" : ""}`}>{t("execSync")}</div>
             <div className={`exec-opt ${execPath === "async" ? "active" : ""}`}>{t("execAsync")}</div>
           </div>
+          {execPath === "async" && !auth.authenticated && (
+            <div className="run-status warn" style={{ marginBottom: 10 }}>
+              {auth.configured ? t("clusterAuthRequired") : t("clusterAuthNotConfigured")}
+              {auth.configured && (
+                <div style={{ marginTop: 6 }}>
+                  <a className="btn btn-ghost btn-sm" href="/dev/auth/login">{t("signInMicrosoft")}</a>
+                </div>
+              )}
+            </div>
+          )}
           <button className="btn btn-primary" style={{ width: "100%", marginTop: 14 }}
-                  disabled={running || issues.length > 0} onClick={runModelRequest}>
+                  disabled={running || issues.length > 0 || (execPath === "async" && !auth.authenticated)}
+                  onClick={runModelRequest}>
             {running ? <Spinner label={t("running")} /> : t("runButton")}
           </button>
           {runError && (

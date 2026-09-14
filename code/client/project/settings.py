@@ -62,6 +62,34 @@ OPTIMIZER_SOLVER = os.environ.get("MATE_SOLVER", "cpsat")
 SYNC_SOLVE_MAX_STUDENTS = int(os.environ.get("MATE_SYNC_MAX_STUDENTS", 100))
 SYNC_SOLVE_TMAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_SECONDS", 20))
 
+# -------------------- Cluster access gate (Microsoft sign-in) --------------------
+# The sync/CP-SAT path above is open to anyone -- it's free, open-source,
+# and runs on this app's own Lambda. The *cluster* path (backend/views.py's
+# large-roster branch, upload_parms()) spends a shared, licensed resource
+# (the PUC cluster's Gurobi seat and compute), so it's gated behind sign-in
+# with a uc.cl/ing.puc.cl account. See backend/msft_auth.py's module
+# docstring for what this needs on the Azure side (an app registration --
+# can't be done from here) and why the domain check happens here at the
+# application level rather than via Azure tenant restriction.
+MATE_ALLOWED_EMAIL_DOMAINS = os.environ.get("MATE_ALLOWED_EMAIL_DOMAINS", "uc.cl,ing.puc.cl")
+MS_CLIENT_ID = os.environ.get("MS_CLIENT_ID")
+MS_CLIENT_SECRET = os.environ.get("MS_CLIENT_SECRET")
+MS_AUTHORITY = os.environ.get("MS_AUTHORITY", "https://login.microsoftonline.com/organizations")
+# Must exactly match a Redirect URI registered on the Azure app (OAuth
+# redirect URIs are matched literally, not by prefix) -- register both this
+# local-dev default and your deployed .../dev/auth/callback URL there, and
+# set this env var per-environment (local .env vs. Lambda env vars) to
+# whichever one applies. See README's Environment variables section.
+MS_REDIRECT_URI = os.environ.get("MS_REDIRECT_URI", "http://127.0.0.1:8000/dev/auth/callback")
+
+# django.contrib.sessions defaults to DB-backed sessions, which can't work
+# here -- DATABASES = {} below, there's no database at all. Signed, itself-
+# contained cookies need nothing server-side; the only things ever stored
+# in a session are a short-lived MSAL auth-flow dict (during sign-in) and,
+# after a successful sign-in, the user's verified email address -- both
+# small enough to fit comfortably in a cookie.
+SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/3.0/howto/deployment/checklist/
 

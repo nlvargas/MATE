@@ -158,6 +158,37 @@ variables in production (see [Deploying](#deploying)):
 | `MATE_CLUSTER_HOST` / `_USER` / `_PASSWORD` / `_PARAMS_PATH` | SSH access to the PUC compute cluster for large (offline) solves | — | required if using the offline path |
 | `MATE_SOLVER` | `cpsat` (default, open-source) or `gurobi` (needs a license) | `cpsat` | `cpsat` |
 | `MATE_SYNC_MAX_STUDENTS` / `MATE_SYNC_TMAX_SECONDS` | Threshold/time-budget for solving synchronously in-request vs. handing off to the cluster -- the frontend's Sync/Async indicator reads `MATE_SYNC_MAX_STUDENTS` at page load via `window.__MATE_CONFIG__` (see `frontend/views.py`), so it's a single value, not a constant duplicated on both sides | 100 / 20s | same |
+| `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_REDIRECT_URI` | Microsoft sign-in, gating who can submit a job to the cluster (see [Cluster sign-in](#cluster-sign-in-microsoft) below) | unset -- cluster submission returns a clear "not configured" error | required to allow any cluster submissions at all |
+| `MATE_ALLOWED_EMAIL_DOMAINS` | Comma-separated email domains allowed to submit to the cluster | `uc.cl,ing.puc.cl` | same, or your own |
+
+### Cluster sign-in (Microsoft)
+
+The sync/CP-SAT path is open to anyone -- it's free, open-source, and runs
+on this app's own Lambda. The cluster path spends a shared, licensed
+resource (the PUC cluster's Gurobi seat and compute), so `backend/views.py`'s
+large-roster branch is gated on signing in with a `uc.cl` or `ing.puc.cl`
+account. The domain check happens in this app (`backend/msft_auth.py`), not
+via Azure tenant restriction, on purpose -- see that file's module
+docstring for the reasoning.
+
+This needs an actual Microsoft/Azure app registration, which is an account
+action, not something committed to this repo:
+
+1. [portal.azure.com](https://portal.azure.com) -> Microsoft Entra ID ->
+   App registrations -> New registration. Supported account types:
+   "Accounts in any organizational directory".
+2. Add both `http://127.0.0.1:8000/dev/auth/callback` (local dev) and your
+   deployed `.../dev/auth/callback` URL as Web Redirect URIs.
+3. Certificates & secrets -> New client secret -- copy its value
+   immediately, Azure only shows it once.
+4. Set `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, and `MS_REDIRECT_URI` (whichever
+   of the two redirect URIs applies to that environment) in
+   `code/client/.env` locally, or as Lambda environment variables in
+   production, the same way the cluster SSH credentials already work.
+
+Until those are set, `/dev/auth/login` returns a 503 instead of crashing,
+and the frontend shows a "sign-in isn't configured" message in place of
+the sign-in button when a roster is large enough to need it.
 
 ## Deploying
 

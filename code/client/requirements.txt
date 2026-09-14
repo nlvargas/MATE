@@ -10,3 +10,4 @@ django-s3-storage==0.15.0
 troposphere
 ortools>=9.11,<10
 zappa>=0.62
+msal>=1.28,<2
