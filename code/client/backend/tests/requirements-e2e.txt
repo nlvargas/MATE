@@ -1,0 +1,5 @@
+# Only for backend/tests/e2e_smoke_test.py -- deliberately not in
+# code/client/requirements.txt (that's the Lambda deploy bundle; this
+# script never runs there, only from a developer's machine against a
+# running server).
+requests

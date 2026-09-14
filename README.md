@@ -145,6 +145,25 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
+### 4. End-to-end smoke test
+
+`backend/tests/e2e_smoke_test.py` drives the real HTTP API the same way
+the frontend does -- `/upload/` then `/run_model/` -- for a synthetic
+50-student roster, and checks every student actually gets placed. Point it
+at a running server, local or deployed:
+
+```
+cd code/client
+pip install -r backend/tests/requirements-e2e.txt
+python3 backend/tests/e2e_smoke_test.py --base-url http://127.0.0.1:8000/dev
+# or, after deploying:
+python3 backend/tests/e2e_smoke_test.py --base-url https://<your-deployed-host>/dev
+```
+
+Not part of CI (there's no live server for CI to point it at) -- run it
+by hand after a deploy, or anytime you want to check the whole request
+path rather than just the solver.
+
 ## Environment variables
 
 Set via `code/client/.env` locally (git-ignored, loaded by
