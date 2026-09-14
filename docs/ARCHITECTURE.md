@@ -347,7 +347,7 @@ if total_students <= settings.SYNC_SOLVE_MAX_STUDENTS:
     ...
 ```
 
-**Small rosters (`total_students <= SYNC_SOLVE_MAX_STUDENTS`, default 60 —
+**Small rosters (`total_students <= SYNC_SOLVE_MAX_STUDENTS`, default 100 —
 `project/settings.py`)** take the *online*/sync path: `_run_solver()` calls
 straight into `optimization_cpsat.run_model()` (or `optimization.run_model()`
 for Gurobi) inside the same Django worker/Lambda invocation that received
@@ -383,6 +383,25 @@ under what a large roster's solve can take. Anything past the configured
 size threshold is routed to compute with no such wall-clock limit, at the
 cost of turning the request into a fire-and-forget submission instead of a
 request/response round trip.
+
+**Where 100 comes from**: run directly against `optimization_cpsat.run_model()`
+(no Django/HTTP in the loop) with the solver's internal time limit set to
+match `SYNC_SOLVE_TMAX_SECONDS`, on a roster with several attributes/
+sections/topics (richer than the demo roster, to avoid an unrelated
+artifact -- see below) -- a 50-student roster solved to OPTIMAL in ~2s, 100
+in ~13s, and 150 hit the 20s cap before the solver could prove optimality.
+That was measured on hardware with more real CPU than this app's default
+Lambda memory allocation grants (Lambda's CPU share scales with configured
+memory, and `zappa_settings.json` doesn't set one), so production is
+expected to be slower, not faster, than these numbers -- 100 already
+has some margin baked in, not zero. Re-benchmark before raising it,
+especially after any change to Lambda memory or typical roster complexity.
+(The low-cardinality demo roster shape isn't a good benchmark input on its
+own: `model_common.get_min_capacity()` caps a section's effective capacity
+at how many *distinct student types* are available in it, not how many
+students -- a small attribute/topic space collapses a large synthetic
+roster into few types and reports spurious infeasibility that's an
+artifact of the test data, not a real scaling limit.)
 
 ## 9. Demo
 

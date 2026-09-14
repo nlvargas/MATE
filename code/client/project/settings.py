@@ -52,7 +52,14 @@ OPTIMIZER_SOLVER = os.environ.get("MATE_SOLVER", "cpsat")
 # in sync by hand here: changing SYNC_SOLVE_MAX_STUDENTS (or
 # MATE_SYNC_MAX_STUDENTS) changes what the UI shows too, automatically, on
 # the next page load -- no frontend rebuild required.
-SYNC_SOLVE_MAX_STUDENTS = int(os.environ.get("MATE_SYNC_MAX_STUDENTS", 300))
+# 100 is a measured, not a guessed, number -- see docs/ARCHITECTURE.md's
+# note on this threshold: on hardware comparable to (or faster than) this
+# Lambda function's default memory allocation, CP-SAT solves stopped
+# reliably finishing (to OPTIMAL) inside SYNC_SOLVE_TMAX_SECONDS somewhere
+# between 100 and 150 students, for a moderately complex roster (multiple
+# attributes/sections/topics). Bump this only after re-benchmarking against
+# your actual configured Lambda memory/CPU and roster complexity.
+SYNC_SOLVE_MAX_STUDENTS = int(os.environ.get("MATE_SYNC_MAX_STUDENTS", 100))
 SYNC_SOLVE_TMAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_SECONDS", 20))
 
 # Quick-start development settings - unsuitable for production

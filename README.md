@@ -157,7 +157,7 @@ variables in production (see [Deploying](#deploying)):
 | `DJANGO_DEBUG` | Toggles `DEBUG`, which also controls where static files are served from (local disk vs. S3) and how backend routes are mounted (see comment in `settings.py`) | on (`1`) | **must be `"0"`** |
 | `MATE_CLUSTER_HOST` / `_USER` / `_PASSWORD` / `_PARAMS_PATH` | SSH access to the PUC compute cluster for large (offline) solves | — | required if using the offline path |
 | `MATE_SOLVER` | `cpsat` (default, open-source) or `gurobi` (needs a license) | `cpsat` | `cpsat` |
-| `MATE_SYNC_MAX_STUDENTS` / `MATE_SYNC_TMAX_SECONDS` | Threshold/time-budget for solving synchronously in-request vs. handing off to the cluster -- the frontend's Sync/Async indicator reads `MATE_SYNC_MAX_STUDENTS` at page load via `window.__MATE_CONFIG__` (see `frontend/views.py`), so it's a single value, not a constant duplicated on both sides | 300 / 20s | same |
+| `MATE_SYNC_MAX_STUDENTS` / `MATE_SYNC_TMAX_SECONDS` | Threshold/time-budget for solving synchronously in-request vs. handing off to the cluster -- the frontend's Sync/Async indicator reads `MATE_SYNC_MAX_STUDENTS` at page load via `window.__MATE_CONFIG__` (see `frontend/views.py`), so it's a single value, not a constant duplicated on both sides | 100 / 20s | same |
 
 ## Deploying
 
