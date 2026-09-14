@@ -23,7 +23,7 @@ simultaneously) is a genuine constraint-satisfaction problem, modeled and
 solved as one:
 
 - **A real CP-SAT (Google OR-Tools) formulation** in
-  [`code/server/optimization_cpsat.py`](code/server/optimization_cpsat.py) —
+  [`code/client/backend/optimization_cpsat.py`](code/client/backend/optimization_cpsat.py) —
   sets, decision variables, and hard/soft constraints for group size,
   section capacity, per-attribute balance bounds, and preference ranking,
   minimized as a weighted objective.
@@ -51,8 +51,9 @@ warm-start heuristic and its benchmarks, and the sync/async split).
   [Zappa](https://github.com/zappa/Zappa). Static assets are served from
   S3 in production.
 - **Solver**: [OR-Tools](https://developers.google.com/optimization) CP-SAT
-  (`code/server/`) — runs either in-process (small rosters) or on a Slurm
-  cluster via SSH (large rosters).
+  (`code/client/backend/optimization_cpsat.py`, the open-source default,
+  runs in-process for small rosters) or Gurobi (`code/server/optimization.py`,
+  an optional swap-in, runs on a Slurm cluster via SSH for large rosters).
 - **Frontend**: React (bundled with Webpack) served by the Django template
   in `code/client/frontend/`.
 - **CI**: GitHub Actions runs the Django system check, the solver's test
@@ -127,12 +128,14 @@ NODE_OPTIONS=--openssl-legacy-provider npm run build
 With the backend running (`DEBUG=1`), open `http://127.0.0.1:8000/` — the
 wizard should load: Setup → Upload → Configure & run → Results.
 
-### 3. The solver worker directly (and its tests)
+### 3. The solver test suite
 
-`code/server/` has its own `requirements.txt` (just `ortools`) if you want
-to run the CP-SAT model standalone, outside the Django app. Its test suite
-(`code/server/tests/` -- preprocessing, model building/solving, and
-postprocessing) needs `requirements-dev.txt` instead:
+`code/server/tests/` covers the whole optimization core -- preprocessing
+(`model_common.py`), and model building/solving and postprocessing
+(`optimization_cpsat.py`, which actually lives in `code/client/backend/`
+since only the Django app runs it -- see [Stack](#stack)). Run it with
+`code/server`'s `requirements-dev.txt`, which pulls in `ortools` just for
+these tests (the cluster-side runtime doesn't need it):
 
 ```
 cd code/server

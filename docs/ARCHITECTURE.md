@@ -29,16 +29,22 @@ emailed spreadsheet once a compute cluster finishes the solve.
 |---|---|---|
 | Backend | Django + Django REST Framework | `code/client/` |
 | Frontend | React 16, hand-rolled Webpack 4 (no Create React App) | `code/client/frontend/` |
-| Optimization core | Google OR-Tools CP-SAT (default), Gurobi (optional swap-in) | `code/server/` |
+| Optimization core (default) | Google OR-Tools CP-SAT | `code/client/backend/optimization_cpsat.py` |
+| Optimization core (optional swap-in) | Gurobi, plus preprocessing shared with CP-SAT | `code/server/` |
 | Hosting | AWS Lambda + API Gateway + S3 (static), via Zappa | `code/client/zappa_settings.json` |
 | Large-job compute | PUC university Slurm cluster, driven over SSH/SCP (paramiko) | `code/server/run.sh`, `code/client/backend/utils.py` |
 
 `code/client/` is the Django project — it serves the API, renders the
 frontend's template shell, and (for small rosters) runs the solver
-in-request. `code/server/` is solver-agnostic optimization code that predates
-the Django app and still runs standalone on the Slurm cluster via
-`code/server/main.py`; the Django app imports it directly (`project/settings.py`
-inserts `code/server` into `sys.path` — see §8) rather than duplicating it.
+in-request via `code/client/backend/optimization_cpsat.py`, the default,
+open-source CP-SAT backend — it lives here rather than in `code/server/`
+because this app is the only thing that ever executes it. `code/server/`
+predates the Django app and still runs standalone on the Slurm cluster via
+`code/server/main.py`, using the Gurobi backend (`optimization.py`); what's
+left shared between the two backends is `code/server/model_common.py`'s
+solver-agnostic preprocessing, which `project/settings.py` puts on
+`sys.path` (see §8) so the Django app can import it directly rather than
+duplicating it.
 `code/client/frontend/` is the React single-page app that implements the
 wizard; it's built with a plain Webpack config (`webpack.config.js`, no CRA
 tooling) into `code/client/frontend/static/main.js`, which Django serves.
@@ -83,12 +89,12 @@ flowchart TB
     Lambda --> RunModel{"run_model view<br/>(backend/views.py)<br/>total_students <= SYNC_SOLVE_MAX_STUDENTS ?"}
     RunServer --> RunModel
 
-    RunModel -->|"yes: small roster<br/>('online' / sync path)"| SolveSync["CP-SAT solve in-request<br/>optimization_cpsat.run_model()<br/>(code/server/)"]
+    RunModel -->|"yes: small roster<br/>('online' / sync path)"| SolveSync["CP-SAT solve in-request<br/>optimization_cpsat.run_model()<br/>(code/client/backend/)"]
     SolveSync -->|"JSON response"| SPA
 
     RunModel -->|"no: large roster<br/>('offline' / async path)"| Upload["upload_parms()<br/>gzip params, SCP + sbatch<br/>over SSH (paramiko)"]
     Upload --> Cluster["PUC Slurm cluster<br/>groups/run.sh -> main.py"]
-    Cluster -->|"same code/server/ solver,<br/>run headless"| SolveAsync["CP-SAT / Gurobi solve"]
+    Cluster -->|"code/server/ solver,<br/>run headless"| SolveAsync["Gurobi solve<br/>(optimization.py)"]
     SolveAsync --> Excel["create_excel(): .xlsx of results"]
     Excel -->|"send_mail()"| Email(["Email to the instructor"])
 ```
@@ -101,13 +107,13 @@ result arrives later, by email, as a spreadsheet.
 
 ## 4. The model
 
-The CP-SAT formulation lives in `code/server/optimization_cpsat.py`'s
+The CP-SAT formulation lives in `code/client/backend/optimization_cpsat.py`'s
 `_build_model()` (starts at line 157). It's a straight translation of an
 original Gurobi MIP formulation from the project's earlier design
 documentation (not included in this repo); `optimization.py`
-(the Gurobi backend) and `optimization_cpsat.py` share their non-solver
-logic through `code/server/model_common.py` so the two backends can't drift
-apart on what a "group" or a "topic family" means.
+(the Gurobi backend, in `code/server/`) and `optimization_cpsat.py` share
+their non-solver logic through `code/server/model_common.py` so the two
+backends can't drift apart on what a "group" or a "topic family" means.
 
 ### Sets
 
@@ -244,7 +250,7 @@ symmetry the solver has to contend with.
 
 ## 6. The greedy warm-start heuristic
 
-`_greedy_hint()` in `code/server/optimization_cpsat.py` (starts at line 423)
+`_greedy_hint()` in `code/client/backend/optimization_cpsat.py` (starts at line 423)
 is a cheap, pure-Python constructive heuristic — it makes no solver calls —
 that builds a plausible-but-not-necessarily-optimal initial assignment,
 handed to CP-SAT via `model.AddHint()` in `run_model()` (line ~502) so the
@@ -299,7 +305,7 @@ documented dead end rather than deleted.
 
 The solved model only tells you `y[i, g]` — how many students of type `i`
 ended up in group `g`, a **count**, not *which* students. `assign_students()`
-in `code/server/optimization_cpsat.py` (starts at line 105) does the
+in `code/client/backend/optimization_cpsat.py` (starts at line 105) does the
 reverse mapping:
 
 ```python

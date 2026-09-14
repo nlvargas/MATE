@@ -19,11 +19,14 @@ env = environ.Env()
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 # -------------------- Optimizer solver configuration --------------------
-# code/server (the optimizer worker) lives outside this Django project and is
-# normally only ever invoked as a standalone script on the cluster. Adding it
-# to sys.path lets the web backend import optimization_cpsat/model_common
-# directly, so "small" problems can be solved synchronously in the request
-# instead of always round-tripping through the cluster (see backend/views.py).
+# optimization_cpsat.py (the default, open-source CP-SAT backend) lives in
+# backend/ and is imported normally, since only this Django app ever runs
+# it. code/server -- the Gurobi backend (optimization.py) that predates
+# this app and still runs standalone on the cluster (see backend/utils.py's
+# upload_parms()) -- also holds model_common.py, the solver-agnostic
+# preprocessing shared by both backends. Adding it to sys.path lets the web
+# backend import model_common directly (and optimization.py, lazily, if
+# MATE_SOLVER=gurobi) instead of duplicating it here.
 SERVER_DIR = os.path.join(os.path.dirname(BASE_DIR), "server")
 if SERVER_DIR not in sys.path:
     sys.path.insert(0, SERVER_DIR)

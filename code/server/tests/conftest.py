@@ -1,16 +1,25 @@
 """
-Shared test scaffolding for code/server's tests.
-
-Inserts code/server itself onto sys.path so tests can `import model_common`
-/ `import optimization_cpsat` the same bare way the real app does (see the
-"server/ sys.path import trick" the README's Deploying section mentions) --
-these modules are never a `server` package, they're meant to be imported by
-bare name with code/server on sys.path.
+Shared test scaffolding for code/server's tests, which cover the whole
+optimization core even though it now spans two directories: model_common.py
+and optimization.py (Gurobi) still live in code/server (this suite's own
+parent directory) and predate the Django app; optimization_cpsat.py (the
+default, open-source CP-SAT backend) moved to code/client/backend/ since
+it's only ever executed by that app -- see its module docstring. Both
+directories go on sys.path so tests can `import model_common` /
+`import optimization_cpsat` the same bare-name way the real app does (the
+"sys.path import trick" the README's Deploying section mentions); neither
+module is part of a `server` or `backend` package as far as these imports
+are concerned.
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+_SERVER_DIR = os.path.dirname(_TESTS_DIR)
+_CLIENT_BACKEND_DIR = os.path.join(os.path.dirname(_SERVER_DIR), "client", "backend")
+for _dir in (_SERVER_DIR, _CLIENT_BACKEND_DIR):
+    if _dir not in sys.path:
+        sys.path.insert(0, _dir)
 
 import pytest
 

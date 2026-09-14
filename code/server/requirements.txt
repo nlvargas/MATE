@@ -1,6 +1,9 @@
-# Solver dependency for code/server (the optimizer worker that runs on the
-# cluster). ortools is the default, open-source path (CP-SAT). Gurobi stays
-# available as a swap-in for optimization.py, but gurobipy isn't listed here
-# since it's licensed and typically installed separately (e.g. via the
-# cluster's own Gurobi module) rather than from PyPI.
-ortools>=9.9
+# Runtime dependencies for code/server -- the Gurobi backend (optimization.py)
+# that runs standalone on the cluster via main.py/run.sh, plus the shared
+# model_common.py preprocessing. gurobipy itself isn't listed here since
+# it's licensed and typically installed separately (e.g. via the cluster's
+# own Gurobi module) rather than from PyPI. openpyxl is for utils.py's
+# create_excel(), which builds the results workbook emailed to the
+# instructor. (ortools/CP-SAT moved out with optimization_cpsat.py -- see
+# requirements-dev.txt, which still needs it to run this directory's tests.)
+openpyxl

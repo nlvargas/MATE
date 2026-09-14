@@ -88,11 +88,11 @@ def _run_solver(solver_name, data):
             ) from e
     else:
         try:
-            from optimization_cpsat import run_model
+            from .optimization_cpsat import run_model
         except ImportError as e:
             raise RuntimeError(
                 "Couldn't import the CP-SAT solver -- is ortools installed "
-                "(see code/server/requirements.txt)?"
+                "(see code/client/requirements.txt)?"
             ) from e
     return run_model(data)
 
