@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+
+  <title>MATE - Make A Team Efficiently</title>
+  <meta content="Automatic, preference-aware group formation." name="description">
+
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static "theme.css" %}">
+</head>
+
+<body>
+  <div id="app"></div>
+  <!-- Server-side config the frontend needs but can't hardcode without
+       risking drift from the backend's own settings (see
+       frontend/views.py's index() and project/settings.py's
+       SYNC_SOLVE_MAX_STUDENTS comment) -- read via window.__MATE_CONFIG__,
+       not baked into main.js, so it stays correct even if this value is
+       changed via an env var without a frontend rebuild. -->
+  <script>
+    window.__MATE_CONFIG__ = {
+      syncMaxStudents: {{ sync_max_students }}
+    };
+  </script>
+  <script src="{% static "main.js" %}"></script>
+</body>
+
+</html>

@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+.DS_Store
+*.DS_Store
+
+
+# Distribution / packaging
+.Python
+env/
+.venv/
+.venv*/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+node_modules/
+.env
+# groups_tests/ -- removed from ignore: tests should be tracked, not silently dropped.
+
+# Runtime scratch from actual solver runs -- real job params/results,
+# never portfolio content. Regenerated at runtime; keep the dirs via .gitkeep.
+code/server/outputs/*
+code/server/params/*
+!code/server/outputs/.gitkeep
+!code/server/params/.gitkeep

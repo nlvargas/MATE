@@ -1,0 +1,6 @@
+# Solver dependency for code/server (the optimizer worker that runs on the
+# cluster). ortools is the default, open-source path (CP-SAT). Gurobi stays
+# available as a swap-in for optimization.py, but gurobipy isn't listed here
+# since it's licensed and typically installed separately (e.g. via the
+# cluster's own Gurobi module) rather than from PyPI.
+ortools>=9.9

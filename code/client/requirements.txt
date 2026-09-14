@@ -1,0 +1,12 @@
+django-environ>=0.12,<0.14
+Django==5.2.6
+djangorestframework>=3.16,<3.19
+openpyxl==3.1.5
+pexpect==4.8
+scp
+paramiko
+setuptools
+django-s3-storage==0.15.0
+troposphere
+ortools>=9.11,<10
+zappa>=0.62

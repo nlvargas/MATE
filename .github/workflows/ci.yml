@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (Django + CP-SAT)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r code/client/requirements.txt
+      - name: Django system check
+        working-directory: code/client
+        env:
+          DJANGO_SECRET_KEY: ci-only-not-a-real-secret
+          DJANGO_DEBUG: "1"
+        run: python manage.py check
+      - name: Import the CP-SAT solver module
+        working-directory: code/server
+        run: python -c "import optimization_cpsat"
+
+  frontend:
+    name: Frontend (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: code/client/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Production build
+        env:
+          NODE_OPTIONS: --openssl-legacy-provider
+        run: npm run build
