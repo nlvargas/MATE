@@ -188,7 +188,7 @@ in `_build_model()`: (a) `sum(y[i,g] for g in G) == students_types[i]["students"
 (d) the `lower_number`/`upper_number` group-size band, (e) the per-topic
 coverage bounds via `G_t`, (h)/(i) the `M[g]`/`M_max` unknown-preference
 bookkeeping, (j)/(k) `z[i]`/`z_max`, (l)/(m) the attribute-balance `Q`/`P`
-pair, (n)/(ñ) section capacity and per-type availability, (o)/(p) the
+pair, (n) section capacity and per-type availability, (o)/(p) the
 same-section (`sameDay`) and fixed-section (`fixedDay`) rules via `u[p, d]`.
 The implementation matches the formulation with a couple of UI-facing
 renames rather than any behavioral difference — most visibly,
