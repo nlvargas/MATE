@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
+import axios from 'axios';
 import XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { useI18n } from '../i18n';
+import Spinner from '../components/Spinner';
 
 function statusClass(statusName) {
   // "good" (proven optimal), "accent" (feasible but the solver hit its
@@ -18,6 +20,7 @@ function statusClass(statusName) {
 
 export default function Results({ runResult, attributes, goConfigure }) {
   const { t, tf } = useI18n();
+  const [sensitivity, setSensitivity] = useState(null); // null=not run, {loading:true}, {error:true}, or the /dev/sensitivity/ response
 
   if (!runResult) {
     return (
@@ -89,6 +92,31 @@ export default function Results({ runResult, attributes, goConfigure }) {
     saveAs(new Blob([wbout], { type: "application/octet-stream" }), "mate_results.xlsx");
   }
 
+  // requestBody is the exact body CreateGroups.js sent to /dev/run_model/
+  // for *this* result (see its runModelRequest()) -- sensitivity analysis
+  // is "what if one bound on this request were relaxed", so it has to
+  // replay the same body, not a freshly reconstructed one. Absent for a
+  // result restored some other way (there isn't one today, but this keeps
+  // the button inert instead of crashing if that ever changes).
+  const requestBody = runResult._context && runResult._context.requestBody;
+
+  function runSensitivity() {
+    if (!requestBody) return;
+    setSensitivity({ loading: true });
+    axios.post('/dev/sensitivity/', requestBody)
+      .then((response) => setSensitivity(response.data))
+      .catch((err) => {
+        // views.sensitivity() answers too-large/unsupported-solver with a
+        // {error, message} body (same shape CreateGroups.js's own
+        // runModelRequest() already special-cases for the cluster-auth
+        // gate) -- surface that message when present instead of always
+        // falling back to the generic one, so e.g. a roster too large for
+        // the sync path tells the person that, not just "something broke".
+        const message = err.response && err.response.data && err.response.data.message;
+        setSensitivity({ error: true, message });
+      });
+  }
+
   const outcome = runResult.preference_outcome || {};
   const totalOutcome = Object.values(outcome).reduce((a, b) => a + b, 0) || 1;
   const maxOutcome = Math.max(1, ...Object.values(outcome));
@@ -135,6 +163,58 @@ export default function Results({ runResult, attributes, goConfigure }) {
         <div className="btn-row">
           <button className="btn" style={{ width: "100%", justifyContent: "center" }} onClick={downloadXlsx}>⬇ {t("downloadResults")}</button>
         </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><h3>{t("sensitivityTitle")}</h3></div>
+        <p className="card-sub">{t("sensitivitySub")}</p>
+        {!sensitivity && (
+          <div className="btn-row">
+            <button
+              className="btn btn-primary"
+              style={{ width: "100%", justifyContent: "center" }}
+              onClick={runSensitivity}
+              disabled={!requestBody}
+            >
+              {t("sensitivityRunBtn")}
+            </button>
+          </div>
+        )}
+        {sensitivity && sensitivity.loading && (
+          <div style={{ textAlign: "center", padding: "8px 0" }}><Spinner label={t("sensitivityRunning")} /></div>
+        )}
+        {sensitivity && !sensitivity.loading && sensitivity.error && (
+          <p className="card-sub" style={{ margin: 0 }}>{sensitivity.message || t("sensitivityError")}</p>
+        )}
+        {sensitivity && !sensitivity.loading && !sensitivity.error && sensitivity.baseline_pct == null && (
+          <p className="card-sub" style={{ margin: 0 }}>{t("sensitivityUnavailable")}</p>
+        )}
+        {sensitivity && !sensitivity.loading && !sensitivity.error && sensitivity.baseline_pct != null && (
+          sensitivity.families.length === 0 ? (
+            <p className="card-sub" style={{ margin: 0 }}>{tf("sensitivityNoneBinding", { pct: sensitivity.baseline_pct })}</p>
+          ) : (
+            <React.Fragment>
+              <p className="card-sub" style={{ marginBottom: 10 }}>
+                {tf("sensitivityBaseline", { pct: sensitivity.baseline_pct })}
+              </p>
+              {sensitivity.families.map((f, i) => (
+                <div className="dist-row" key={i}>
+                  <div className="dist-topic">{f.label}</div>
+                  <div className="dist-bar-line">
+                    <div className="dist-track">
+                      <div
+                        className="dist-fill seg1"
+                        style={{ width: `${Math.min(100, (f.gain_points / sensitivity.families[0].gain_points) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="dist-val">+{f.gain_points} pts</span>
+                  </div>
+                </div>
+              ))}
+              <div className="modal-box" style={{ marginTop: 16, fontSize: 11.5 }}>{t("sensitivityNote")}</div>
+            </React.Fragment>
+          )
+        )}
       </div>
 
       <div className="card">

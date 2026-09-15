@@ -182,7 +182,16 @@ export default function CreateGroups(props) {
       .then((response) => {
         setRunResult({
           ...response.data,
-          _context: { students: totalStudents, groups: groupsNumber, min: minStudents, max: maxStudents, email },
+          _context: {
+            students: totalStudents, groups: groupsNumber, min: minStudents, max: maxStudents, email,
+            // Kept so Results.js can re-run the same roster/settings through
+            // /dev/sensitivity/ on demand (see its Sensitivity card) without
+            // the parent needing to separately track or re-derive the body
+            // this run already sent -- the sensitivity analysis is defined
+            // as "what if one bound on *this* request were relaxed", so it
+            // has to be the exact same body, not a freshly reconstructed one.
+            requestBody: body,
+          },
         });
         goResults();
       })
