@@ -403,6 +403,39 @@ students -- a small attribute/topic space collapses a large synthetic
 roster into few types and reports spurious infeasibility that's an
 artifact of the test data, not a real scaling limit.)
 
+**The 20s cap used to only bound the CP-SAT search, not the whole solve --
+that was a real bug.** A live UI test with a 50-student roster (using
+`CreateGroups.js`'s own default of 4 groups, not the 8-group shape the
+benchmark above used) came back `OPTIMAL` in a genuinely useful sense, but
+took **29.1 seconds wall-clock** -- at or past API Gateway's 29s hard
+limit -- even though the CP-SAT search itself never exceeded its 20s
+budget. The missing time was model-building and greedy-hint computation in
+`optimization_cpsat.run_model()`, which ran *before* the timed search and
+weren't bounded by anything. Fixed by making `params["tmax"]` a *total*
+wall-clock budget: `run_model()` now measures how long build+hint actually
+took and gives the solver whatever's left (floored at
+`_MIN_SEARCH_SECONDS = 2.0` so a slow build never leaves it with zero
+time), instead of always handing it the full budget on top of an unbounded
+setup cost. Re-verified with `backend/tests/sync_solve_benchmark.py`
+(sweeps roster size through the real `upload`/`run_model` views via
+`RequestFactory`, using the frontend's actual default 4-group shape): wall
+time now tracks the 20s budget closely (e.g. ~20.0-20.1s at the points that
+hit the cap) instead of running past it.
+
+**A second, separate finding from that same sweep**: `CreateGroups.js`'s
+default of always capping `groupsNumber` at 4 (`Math.min(4, totalStudents)`,
+regardless of how large the roster is) means the default group shape gets
+fewer, bigger groups as a roster grows, which both solves slower and, at a
+non-trivial rate in this sweep (roughly a third of random trials at
+N=40-75), comes back genuinely `INFEASIBLE` rather than merely slow --
+confirmed not a benchmark artifact by re-running the same N with several
+seeds each. This is a frontend default-tuning question, independent of
+`SYNC_SOLVE_MAX_STUDENTS`: a user who leaves the default 4 groups on a
+large roster may get infeasible or capped-non-optimal results well before
+100 students, while one who sets a group count suited to their roster size
+doesn't hit this. Worth revisiting `CreateGroups.js`'s default formula
+separately -- not addressed here.
+
 **Who can reach the cluster path**: the sync path above is open to anyone
 -- free, open-source, runs on this app's own Lambda, nothing to protect.
 The cluster path spends a shared, licensed resource (the PUC cluster's

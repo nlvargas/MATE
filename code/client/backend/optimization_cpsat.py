@@ -737,7 +737,30 @@ def _greedy_hint(params, G, T, G_t, G_d, G_td):
     return y_hint, w_hint
 
 
+# Floor on the CP-SAT search itself, however long model-building/hinting
+# already ate into the wall-clock budget below. Without this, a roster
+# whose _build_model()/_greedy_hint() alone chew through the whole budget
+# would hand the solver zero (or negative) time and get back an
+# artificial INFEASIBLE/UNKNOWN rather than an honest attempt.
+_MIN_SEARCH_SECONDS = 2.0
+
+
 def run_model(params):
+    # params["tmax"] is the *total* wall-clock budget for this call (see
+    # views.py's SYNC_SOLVE_TMAX_SECONDS / _SYNC_TIME_LIMIT_SAFETY_FACTOR),
+    # not just the CP-SAT search -- callers on a hard request deadline
+    # (Lambda behind API Gateway's 29s cap) need the whole thing bounded,
+    # model-building and greedy-hint computation included. Those two steps
+    # are deterministic (no internal time limit to set), so the fix is to
+    # measure how long they actually took and give the solver whatever's
+    # left of the budget, instead of always handing it the full amount on
+    # top. A 50-student/4-group roster was observed taking ~29s total on
+    # dev hardware with the old fixed-search-budget code, even though the
+    # CP-SAT search itself never exceeded its 20s cap -- build+hint alone
+    # accounted for the rest. See docs/ARCHITECTURE.md.
+    started = time.monotonic()
+    total_budget = 0.90 * 60 * params["tmax"]
+
     model, ctx = _build_model(params, symmetry_break=_ENABLE_SYMMETRY_BREAKING)
     y, w, G, T = ctx["y"], ctx["w"], ctx["G"], ctx["T"]
     students_types, priority = ctx["students_types"], ctx["priority"]
@@ -754,8 +777,10 @@ def run_model(params):
         model.AddHint(w[g], w_hint.get(g, 0))
 
     # -------------------- Solver --------------------
+    elapsed_before_search = time.monotonic() - started
+    search_budget = max(_MIN_SEARCH_SECONDS, total_budget - elapsed_before_search)
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 0.90 * 60 * params["tmax"]
+    solver.parameters.max_time_in_seconds = search_budget
     solver.parameters.relative_gap_limit = 0.01
     solver.parameters.num_search_workers = 8
     status = solver.Solve(model)
