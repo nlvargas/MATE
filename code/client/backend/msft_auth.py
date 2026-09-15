@@ -62,7 +62,21 @@ def _allowed_domains():
     }
 
 
-MS_SCOPES = ["User.Read"]
+# complete_login() below only ever reads claims off the ID token itself
+# (email/preferred_username) -- it never calls the Microsoft Graph API. So
+# there's no reason to request the Graph "User.Read" delegated permission;
+# an empty scope list is enough, since MSAL's initiate_auth_code_flow()
+# already adds the baseline OIDC scopes (openid, profile, offline_access)
+# needed to get an ID token back. Fewer requested permissions also means a
+# smaller consent prompt -- some tenants (uc.cl included, as of writing)
+# require admin approval before *any* unverified app can request Graph
+# permissions like User.Read, even though the underlying access (read your
+# own basic profile) is minimal; dropping it entirely sidesteps that
+# specific check. It does NOT remove offline_access (MSAL adds that one
+# unconditionally to every auth code flow, and there's no public option to
+# turn it off) -- so a tenant that blocks all third-party consent
+# regardless of scope will still require approval either way.
+MS_SCOPES = []
 
 
 def is_configured():
