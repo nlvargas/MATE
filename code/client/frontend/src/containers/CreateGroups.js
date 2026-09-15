@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useCookies } from 'react-cookie';
 import { useI18n } from '../i18n';
 import DualSlider from '../components/DualSlider';
+import SingleSlider from '../components/SingleSlider';
 import InfoTip from '../components/InfoTip';
 import Spinner from '../components/Spinner';
 
@@ -11,7 +12,7 @@ export default function CreateGroups(props) {
           preferencesNumber, options, students, setRunResult, goResults, auth } = props;
   const { t, tf } = useI18n();
 
-  const [cookies, setCookie] = useCookies(['groupsNumber', 'minStudents', 'maxStudents', 'email']);
+  const [cookies, setCookie] = useCookies(['groupsNumber', 'minStudents', 'maxStudents', 'email', 'maxSolveSeconds']);
   const [cookiesLoaded, setCookiesLoaded] = useState(false);
 
   const totalStudents = students.length;
@@ -19,6 +20,15 @@ export default function CreateGroups(props) {
   const [minStudents, setMinStudents] = useState(Math.max(1, Math.floor(totalStudents / Math.max(1, groupsNumber)) - 1));
   const [maxStudents, setMaxStudents] = useState(Math.max(1, Math.ceil(totalStudents / Math.max(1, groupsNumber)) + 1));
   const [email, setEmail] = useState("");
+  // Bounds and starting value for the max-solve-time slider below, read
+  // from window.__MATE_CONFIG__ (see frontend/views.py's index()) instead
+  // of hardcoding a copy here, for the same reason syncMaxStudents further
+  // down is read that way: this can never drift from the clamp
+  // backend/views.py's run_model() actually enforces server-side.
+  const syncTmaxMin = window.__MATE_CONFIG__?.syncTmaxMinSeconds ?? 5;
+  const syncTmaxMax = window.__MATE_CONFIG__?.syncTmaxMaxSeconds ?? 25;
+  const syncTmaxDefault = window.__MATE_CONFIG__?.syncTmaxDefaultSeconds ?? 20;
+  const [maxSolveSeconds, setMaxSolveSeconds] = useState(syncTmaxDefault);
   const [sameDay, setSameDay] = useState(false);
   const [usedPreferences, setUsedPreferences] = useState(preferences.length);
   const [running, setRunning] = useState(false);
@@ -30,6 +40,10 @@ export default function CreateGroups(props) {
       if (cookies.minStudents) setMinStudents(parseInt(cookies.minStudents));
       if (cookies.maxStudents) setMaxStudents(parseInt(cookies.maxStudents));
       if (cookies.email) setEmail(cookies.email);
+      if (cookies.maxSolveSeconds) {
+        const v = parseInt(cookies.maxSolveSeconds);
+        if (!Number.isNaN(v)) setMaxSolveSeconds(Math.min(Math.max(v, syncTmaxMin), syncTmaxMax));
+      }
       setCookiesLoaded(true);
     }
     // totalStudents (read above) is intentionally not a dep: this effect
@@ -168,11 +182,17 @@ export default function CreateGroups(props) {
     setCookie('minStudents', minStudents, { path: '/' });
     setCookie('maxStudents', maxStudents, { path: '/' });
     setCookie('email', email, { path: '/' });
+    setCookie('maxSolveSeconds', maxSolveSeconds, { path: '/' });
 
     const body = {
       attributes, preferences, groupsNumber, minStudents, maxStudents,
       bounds, students, capacity, preferencesNumber, options, prefsBounds,
-      usedPreferences, modules, email, tmax: 60, sameDay, fixedDay,
+      // tmax is minutes and only means anything on the async/cluster path
+      // (a Slurm job budget) -- maxSolveSeconds is the new, unambiguous
+      // seconds field the sync path actually reads (views.run_model());
+      // see project/settings.py's SYNC_SOLVE_TMAX_MIN/MAX_SECONDS comment
+      // for why the server still clamps it regardless of what's sent here.
+      usedPreferences, modules, email, tmax: 60, maxSolveSeconds, sameDay, fixedDay,
     };
 
     setRunning(true);
@@ -384,6 +404,16 @@ export default function CreateGroups(props) {
             <div className={`exec-opt ${execPath === "sync" ? "active" : ""}`}>{t("execSync")}</div>
             <div className={`exec-opt ${execPath === "async" ? "active" : ""}`}>{t("execAsync")}</div>
           </div>
+          {execPath === "sync" && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <label className="field-label">{t("maxSolveTimeLabel")}</label>
+                <InfoTip text={t("maxSolveTimeTooltip")} />
+              </div>
+              <SingleSlider min={syncTmaxMin} max={syncTmaxMax} step={1}
+                            value={maxSolveSeconds} onChange={setMaxSolveSeconds} suffix="s" />
+            </div>
+          )}
           {execPath === "async" && !auth.authenticated && (
             <div className="run-status warn" style={{ marginBottom: 10 }}>
               {auth.configured ? t("clusterAuthRequired") : t("clusterAuthNotConfigured")}

@@ -22,7 +22,10 @@
        changed via an env var without a frontend rebuild. -->
   <script>
     window.__MATE_CONFIG__ = {
-      syncMaxStudents: {{ sync_max_students }}
+      syncMaxStudents: {{ sync_max_students }},
+      syncTmaxDefaultSeconds: {{ sync_tmax_default_seconds }},
+      syncTmaxMinSeconds: {{ sync_tmax_min_seconds }},
+      syncTmaxMaxSeconds: {{ sync_tmax_max_seconds }}
     };
   </script>
   <script src="{% static "main.js" %}"></script>
