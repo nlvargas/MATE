@@ -507,6 +507,56 @@ version correctly isolates just the two balance-bound families as costing
 bounds, group size, topic coverage, section capacity, all of it -- costing
 an identical 10 points.
 
+## 8c. User-adjustable sync solve-time budget
+
+The 20-second CP-SAT budget behind the sync path (§8) used to be a single,
+admin-only number: whatever `CreateGroups.js` sent as `tmax` was silently
+overwritten by `settings.SYNC_SOLVE_TMAX_SECONDS` every time. The person
+running a solve had no way to trade "solve faster, show me *a* result
+sooner" against "spend the full budget hunting for a better one" -- both are
+reasonable asks depending on how much they trust the default grouping and
+how close to launch they are.
+
+The Configure & run screen now has a slider for it (`SingleSlider.js` --
+DualSlider's one-thumb sibling, same `.dslider*` CSS) next to the
+Sync/Async indicator, visible only on the sync path (the cluster/async path
+isn't affected by this at all -- see below). It's sent as a new field,
+**`maxSolveSeconds`**, deliberately separate from the existing `tmax` field
+rather than repurposing it: `tmax` is already overloaded to mean minutes on
+the async/cluster path (a Slurm job budget, still hardcoded to 60 in
+`CreateGroups.js`) and seconds on the sync path, and giving the sync path
+its own unambiguous field avoids adding a second meaning to a number that
+already has two.
+
+`views.run_model()` reads `maxSolveSeconds`, falls back to
+`SYNC_SOLVE_TMAX_SECONDS` if it's missing or not a valid number, and then
+**always clamps** the result to
+`[SYNC_SOLVE_TMAX_MIN_SECONDS, SYNC_SOLVE_TMAX_MAX_SECONDS]`
+(`project/settings.py`, defaults 5/25) before it ever reaches the solver --
+the slider's own min/max already keep a normal request in range, but the
+server doesn't trust that: a stale client, a hand-crafted request, or a
+future UI bug can't buy more solve time than this deployment allows. 25s
+(not the API Gateway's full 29s) is the ceiling for the same margin reason
+`SYNC_SOLVE_TMAX_SECONDS`'s own default leaves under that hard cap -- see
+§8's "Where 100 comes from" for why build+hint time (not just the timed
+search) has to fit inside that same budget too.
+
+The slider's bounds and starting value themselves come from
+`window.__MATE_CONFIG__` (`sync_tmax_default_seconds`/`min`/`max`,
+extended alongside the existing `sync_max_students` -- `frontend/views.py`'s
+`index()`), not a hardcoded copy in `CreateGroups.js`, for the same reason
+`syncMaxStudents` is read that way (§8): an admin changing the env vars
+(`MATE_SYNC_TMAX_MIN_SECONDS`/`MATE_SYNC_TMAX_MAX_SECONDS`) changes what the
+UI offers on the next page load, with nothing to keep in sync by hand and
+no frontend rebuild required.
+
+Verified end to end with a `RequestFactory` check mirroring
+`backend/tests/e2e_smoke_test.py`'s validated 50-student/8-group roster:
+missing/invalid `maxSolveSeconds` falls back to the default, out-of-range
+values clamp to the configured floor/ceiling, an in-range value is honored
+exactly, and a real (unpatched) solve with the new field set still placed
+all 50 students (`OPTIMAL`, well under a second).
+
 ## 9. Demo
 
 A local `mate_demo_roster.xlsx` (48 fake students) was uploaded through the

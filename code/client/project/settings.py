@@ -62,6 +62,19 @@ OPTIMIZER_SOLVER = os.environ.get("MATE_SOLVER", "cpsat")
 SYNC_SOLVE_MAX_STUDENTS = int(os.environ.get("MATE_SYNC_MAX_STUDENTS", 100))
 SYNC_SOLVE_TMAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_SECONDS", 20))
 
+# The person running a sync solve can now choose their own time budget (see
+# the slider on the Configure & run screen, CreateGroups.js) instead of
+# always getting the fixed SYNC_SOLVE_TMAX_SECONDS above -- that setting is
+# now just the *default* the slider starts at. Whatever the client sends is
+# clamped server-side to [SYNC_SOLVE_TMAX_MIN_SECONDS,
+# SYNC_SOLVE_TMAX_MAX_SECONDS] before it's ever handed to the solver (see
+# views.run_model()), so a tampered or stale client can't ask for more time
+# than this deployment allows -- the ceiling still has to leave margin under
+# the same API Gateway / Lambda 29s hard cap SYNC_SOLVE_TMAX_SECONDS's own
+# comment above describes.
+SYNC_SOLVE_TMAX_MIN_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_MIN_SECONDS", 5))
+SYNC_SOLVE_TMAX_MAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_MAX_SECONDS", 25))
+
 # -------------------- Cluster access gate (Microsoft sign-in) --------------------
 # The sync/CP-SAT path above is open to anyone -- it's free, open-source,
 # and runs on this app's own Lambda. The *cluster* path (backend/views.py's

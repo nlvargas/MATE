@@ -108,7 +108,23 @@ def run_model(request):
 
     if total_students <= settings.SYNC_SOLVE_MAX_STUDENTS:
         # Small problem: solve it inline and hand the result straight back.
-        data["tmax"] = settings.SYNC_SOLVE_TMAX_SECONDS / _SYNC_TIME_LIMIT_SAFETY_FACTOR
+        # The person can choose their own time budget on the Configure & run
+        # screen (CreateGroups.js's slider, sent here as maxSolveSeconds,
+        # seconds); a missing/invalid value falls back to the admin default.
+        # Clamped server-side regardless of what the client sends -- a
+        # tampered or stale request can't buy more solve time than this
+        # deployment allows (see SYNC_SOLVE_TMAX_MIN/MAX_SECONDS's comment
+        # in project/settings.py for why the ceiling has to stay where it
+        # is: API Gateway / Lambda's 29s hard request timeout).
+        try:
+            requested_tmax_seconds = float(params.get("maxSolveSeconds"))
+        except (TypeError, ValueError):
+            requested_tmax_seconds = settings.SYNC_SOLVE_TMAX_SECONDS
+        tmax_seconds = min(
+            max(requested_tmax_seconds, settings.SYNC_SOLVE_TMAX_MIN_SECONDS),
+            settings.SYNC_SOLVE_TMAX_MAX_SECONDS,
+        )
+        data["tmax"] = tmax_seconds / _SYNC_TIME_LIMIT_SAFETY_FACTOR
         started = time.monotonic()
         try:
             sol = _run_solver(settings.OPTIMIZER_SOLVER, data)
