@@ -80,7 +80,7 @@ MS_AUTHORITY = os.environ.get("MS_AUTHORITY", "https://login.microsoftonline.com
 # local-dev default and your deployed .../dev/auth/callback URL there, and
 # set this env var per-environment (local .env vs. Lambda env vars) to
 # whichever one applies. See README's Environment variables section.
-MS_REDIRECT_URI = os.environ.get("MS_REDIRECT_URI", "http://127.0.0.1:8000/dev/auth/callback")
+MS_REDIRECT_URI = os.environ.get("MS_REDIRECT_URI", "http://localhost:8000/dev/auth/callback")
 
 # django.contrib.sessions defaults to DB-backed sessions, which can't work
 # here -- DATABASES = {} below, there's no database at all. Signed, itself-

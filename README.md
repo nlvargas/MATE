@@ -196,7 +196,7 @@ action, not something committed to this repo:
 1. [portal.azure.com](https://portal.azure.com) -> Microsoft Entra ID ->
    App registrations -> New registration. Supported account types:
    "Accounts in any organizational directory".
-2. Add both `http://127.0.0.1:8000/dev/auth/callback` (local dev) and your
+2. Add both `http://localhost:8000/dev/auth/callback` (local dev) and your
    deployed `.../dev/auth/callback` URL as Web Redirect URIs.
 3. Certificates & secrets -> New client secret -- copy its value
    immediately, Azure only shows it once.
