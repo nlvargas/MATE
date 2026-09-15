@@ -171,6 +171,50 @@ def run_model(request):
     return Response({"queued": True}, status=status.HTTP_200_OK)
 
 
+@api_view(['POST'])
+def sensitivity(request):
+    """
+    On-demand "what's each requirement costing you" analysis for the
+    Results screen -- takes the same request body run_model() does and
+    re-solves the roster once per user-configurable constraint family,
+    dropped one at a time, to rank how much each is costing in #1-choice
+    placements. See optimization_cpsat.sensitivity_report()'s docstring
+    for why this has to be a separate, on-demand call rather than
+    something bundled into run_model() itself (it would reopen the exact
+    wall-clock-budget problem run_model() was fixed for -- see that
+    function's docstring -- if it ran on every request instead of only
+    when asked for).
+
+    Sync-only, same SYNC_SOLVE_MAX_STUDENTS cap run_model()'s inline path
+    uses: a roster too large to solve inline is too large to run this
+    analysis on top of that solve, too. CP-SAT only for now -- the Gurobi
+    backend doesn't have sensitivity_report() yet, same as it doesn't have
+    find_infeasibility_causes() (see run_model()'s "causes" comment).
+    """
+    params = json.loads(request.body.decode('utf-8'))
+    data = create_parms(params)
+    total_students = len(data["students"])
+
+    if total_students > settings.SYNC_SOLVE_MAX_STUDENTS:
+        return Response({
+            "error": "too_large",
+            "message": "Sensitivity analysis is only available for rosters solved inline.",
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if settings.OPTIMIZER_SOLVER == "gurobi":
+        return Response({
+            "error": "unsupported_solver",
+            "message": "Sensitivity analysis is only implemented for the CP-SAT solver.",
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        from .optimization_cpsat import sensitivity_report
+        report = sensitivity_report(data)
+    except ImportError as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response(report, status=status.HTTP_200_OK)
+
+
 @api_view(['GET'])
 def remove_params_from_queue(request, params_id):
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

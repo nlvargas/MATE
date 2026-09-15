@@ -5,6 +5,7 @@ from . import auth_views
 urlpatterns = [
     path('upload/', views.upload),
     path('run_model/', views.run_model),
+    path('sensitivity/', views.sensitivity),
     path('pop/<str:params_id>', views.run_model),
     path('auth/login', auth_views.login),
     path('auth/callback', auth_views.auth_callback),

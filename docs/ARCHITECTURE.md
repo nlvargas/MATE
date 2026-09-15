@@ -461,6 +461,52 @@ requiring a signed-in `@uc.cl`/`@ing.puc.cl` account (`backend/msft_auth.py`,
   `settings.py`) rather than the Django session default, since this app
   has no database at all (`DATABASES = {}`) for the default engine to use.
 
+## 8b. Sensitivity analysis: what is each requirement costing you
+
+Two on-demand analyses live in `optimization_cpsat.py`, both built on the
+same mechanism: re-solve the model with one user-configurable constraint
+family disabled at a time (`_candidate_families()` names them the same way
+the Configure & run screen does) and see what changes.
+`find_infeasibility_causes()` (see its module docstring, above) runs this
+when the solve fails, hunting for the minimal set of bounds that together
+can't be satisfied. `sensitivity_report()` runs it on a solve that
+*succeeded*, asking the complementary question: of the bounds that were
+satisfied, which one is the most expensive to keep? For each family, it
+reports how many more students would land their #1 ranked topic if that
+one bound were relaxed and everything else held fixed -- framed as a
+percentage-point gain rather than a raw objective delta, since that's the
+same unit the Results screen's "Preference outcomes" panel already shows,
+and it's comparable across family types (a group-size change and an
+attribute-balance change otherwise have no common unit). Exposed as
+`POST /dev/sensitivity/` (`views.sensitivity()`), called on demand from a
+button on the Results screen -- deliberately never inline with
+`run_model()`, since running O(number of families) extra resolves on every
+request would reopen the exact wall-clock-budget problem documented above.
+
+**A tolerance-mismatch bug, caught before shipping.** The first version
+compared each family trial against a baseline solved via `run_model()`'s
+own production-tuned `_solve_full()` (~20s budget, 0.01 relative gap).
+Every single family, including ones with no plausible connection to the
+roster's actual preferences, reported the exact same suspiciously-round
+gain. Root cause: `UNRANKED_PRIORITY` (1000) and `BALANCE_CONSTANT` (1000)
+are the same order of magnitude, so a 1% gap on a multi-thousand-point
+objective is easily enough slack for CP-SAT to settle on a "good enough"
+solution that's meaningfully worse on #1-choice placement specifically,
+without ever being told to prefer the better one -- the objective doesn't
+distinguish between them. Comparing that kind of near-optimal-but-untied
+baseline against trials solved to a different (tighter, default-gap)
+tolerance was measuring which solve happened to land on a better tied
+solution, not which constraint was actually binding. Fixed by giving the
+baseline its own solve, on the identical settings (time limit, default
+relative_gap_limit of 0, no greedy hint) as every trial -- see
+`sensitivity_report()`'s docstring for the full explanation. Re-verified on
+a small synthetic roster with a deliberately tight attribute-balance bound
+(model_common test helpers in `code/server/tests/conftest.py`): the fixed
+version correctly isolates just the two balance-bound families as costing
+2.5 points each, where the buggy version had shown every family -- balance
+bounds, group size, topic coverage, section capacity, all of it -- costing
+an identical 10 points.
+
 ## 9. Demo
 
 A local `mate_demo_roster.xlsx` (48 fake students) was uploaded through the

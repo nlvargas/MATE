@@ -744,6 +744,59 @@ def _greedy_hint(params, G, T, G_t, G_d, G_td):
 # artificial INFEASIBLE/UNKNOWN rather than an honest attempt.
 _MIN_SEARCH_SECONDS = 2.0
 
+# -------------------- Sensitivity: "what's this requirement costing you" --------------------
+# Companion to find_infeasibility_causes() above, for the opposite case: the
+# solve succeeded, and the question is which of the *satisfied* bounds is
+# expensive to keep. See sensitivity_report()'s own docstring below for the
+# full picture; these two constants bound it the same way
+# _IIS_TRIAL_TIME_LIMIT_SECONDS/_IIS_TOTAL_TIME_BUDGET_SECONDS bound the
+# infeasibility search, and are deliberately separate constants (not reused)
+# so the two searches' budgets can be tuned independently later.
+_SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS = 5.0
+_SENSITIVITY_TOTAL_TIME_BUDGET_SECONDS = 20.0
+
+
+def _solve_full(params):
+    """
+    The "build, hint, solve" core shared by run_model() (the main sync/
+    async solve path) and sensitivity_report() (which needs an identical
+    baseline solve to compare its what-if trials against). Pulled out of
+    run_model() as a pure extraction -- no logic changed -- specifically so
+    sensitivity_report() can't quietly drift onto different hint or
+    wall-clock-budget behavior than the main path; see run_model()'s
+    docstring (below) for why build+hint time has to come out of the same
+    budget as the search itself, not be added on top of it.
+
+    Returns (solver, ctx, status). Does not extract results or handle
+    infeasibility -- that's each caller's own job, since run_model() wants
+    per-student groups and sensitivity_report() only ever wants aggregate
+    y[] values (see _top_choice_share() below).
+    """
+    started = time.monotonic()
+    total_budget = 0.90 * 60 * params["tmax"]
+
+    model, ctx = _build_model(params, symmetry_break=_ENABLE_SYMMETRY_BREAKING)
+    y, w, G, T = ctx["y"], ctx["w"], ctx["G"], ctx["T"]
+    G_t, G_d, G_td = ctx["G_t"], ctx["G_d"], ctx["G_td"]
+    y_hint, w_hint = _greedy_hint(params, G, T, G_t, G_d, G_td)
+    # y is sparse (see _build_model()'s Vars section) -- only hint the pairs
+    # that actually exist as variables; _greedy_hint() already only places
+    # students into sections they're available for, so this never silently
+    # drops a hint that mattered.
+    for (i, g) in y:
+        model.AddHint(y[i, g], y_hint.get((i, g), 0))
+    for g in G:
+        model.AddHint(w[g], w_hint.get(g, 0))
+
+    elapsed_before_search = time.monotonic() - started
+    search_budget = max(_MIN_SEARCH_SECONDS, total_budget - elapsed_before_search)
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = search_budget
+    solver.parameters.relative_gap_limit = 0.01
+    solver.parameters.num_search_workers = 8
+    status = solver.Solve(model)
+    return solver, ctx, status
+
 
 def run_model(params):
     # params["tmax"] is the *total* wall-clock budget for this call (see
@@ -757,33 +810,12 @@ def run_model(params):
     # top. A 50-student/4-group roster was observed taking ~29s total on
     # dev hardware with the old fixed-search-budget code, even though the
     # CP-SAT search itself never exceeded its 20s cap -- build+hint alone
-    # accounted for the rest. See docs/ARCHITECTURE.md.
-    started = time.monotonic()
-    total_budget = 0.90 * 60 * params["tmax"]
-
-    model, ctx = _build_model(params, symmetry_break=_ENABLE_SYMMETRY_BREAKING)
-    y, w, G, T = ctx["y"], ctx["w"], ctx["G"], ctx["T"]
+    # accounted for the rest. See docs/ARCHITECTURE.md. (Now lives in
+    # _solve_full() above, shared with sensitivity_report().)
+    solver, ctx, status = _solve_full(params)
+    G, T = ctx["G"], ctx["T"]
     students_types, priority = ctx["students_types"], ctx["priority"]
-
-    G_t, G_d, G_td = ctx["G_t"], ctx["G_d"], ctx["G_td"]
-    y_hint, w_hint = _greedy_hint(params, G, T, G_t, G_d, G_td)
-    # y is sparse (see _build_model()'s Vars section) -- only hint the pairs
-    # that actually exist as variables; _greedy_hint() already only places
-    # students into sections they're available for, so this never silently
-    # drops a hint that mattered.
-    for (i, g) in y:
-        model.AddHint(y[i, g], y_hint.get((i, g), 0))
-    for g in G:
-        model.AddHint(w[g], w_hint.get(g, 0))
-
-    # -------------------- Solver --------------------
-    elapsed_before_search = time.monotonic() - started
-    search_budget = max(_MIN_SEARCH_SECONDS, total_budget - elapsed_before_search)
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = search_budget
-    solver.parameters.relative_gap_limit = 0.01
-    solver.parameters.num_search_workers = 8
-    status = solver.Solve(model)
+    y = ctx["y"]
 
     # -------------------- Results --------------------
     results = []
@@ -806,3 +838,158 @@ def run_model(params):
         "status": solver.StatusName(status),
         "causes": causes,
     }
+
+
+def _top_choice_share(solver, ctx):
+    """
+    % of individual students who land in a group matching their #1 ranked
+    preference, read directly off the solved y[] values, aggregated by
+    student *type* rather than expanded into individual students.
+
+    Deliberately doesn't go through assign_students(): that function pops
+    students off students_types[i]["students_list"] as it assigns them
+    (see its own docstring), which is only safe to do once per fresh
+    students_types -- fine for run_model()'s single solve, but
+    sensitivity_report() below solves several independent what-if variants
+    of the *same* params in one request, and re-running assign_students()
+    on each would either double-count or crash on an already-drained pool.
+    None of that bookkeeping is needed here anyway: preference rank only
+    depends on (type, group), and each type's population size is already
+    known from students_types[i]["students"], so this sums directly over
+    types instead of individual students.
+    """
+    y, T, G = ctx["y"], ctx["T"], ctx["G"]
+    priority = ctx["priority"]
+    students_types = ctx["students_types"]
+    total = 0
+    top = 0
+    for i in T:
+        n = students_types[i]["students"]
+        if n <= 0:
+            continue
+        total += n
+        for g in G:
+            if (i, g) not in y:
+                continue
+            placed = solver.Value(y[i, g])
+            if placed and priority.get(i, {}).get(g) == 1:
+                top += placed
+    return (top / total * 100.0) if total else 0.0
+
+
+def sensitivity_report(params):
+    """
+    "What is each configurable requirement costing you?" -- the
+    feasible-solve counterpart to find_infeasibility_causes() above. That
+    one answers "which bounds together make this impossible"; this one
+    answers "of the bounds you *did* satisfy, which one is the most
+    expensive to keep."
+
+    For an already-solvable roster, re-solves once per user-configurable
+    constraint family (the same family list find_infeasibility_causes()
+    tests -- see _candidate_families()) with that one family dropped, and
+    reports how many more students would land their #1 ranked topic if it
+    were relaxed, everything else held fixed. Framed in #1-choice
+    percentage rather than raw objective value on purpose: it's the same
+    unit the Results screen's "Preference outcomes" panel already shows
+    the person, and it's meaningful across every family type (a group-size
+    change and an attribute-balance change aren't otherwise comparable),
+    unlike an internal objective score.
+
+    IMPORTANT: the baseline solve here is deliberately its OWN solve, on
+    the exact same solver settings (time limit, default relative_gap_limit
+    of 0) as every family trial below -- NOT a call to run_model()/
+    _solve_full(), even though that would also produce a "baseline"
+    result. run_model()'s production tuning (a ~20s budget and a 0.01
+    relative gap, chosen so the sync path stays under API Gateway's 29s
+    cap -- see its docstring) means it can return a solution that's within
+    1% of optimal on the *overall* objective while still being
+    meaningfully worse on #1-choice placement specifically: preference
+    priority and the balance penalty share one objective
+    (BALANCE_CONSTANT * (z_max + M_max) + sum(flexibility * z[i])), and
+    since UNRANKED_PRIORITY (1000) is the same order of magnitude as
+    BALANCE_CONSTANT (1000), a 1% gap on a multi-thousand-point objective
+    is easily enough slack to flip several students between rank 1 and
+    rank 2 without CP-SAT ever "seeing" a reason to prefer one over the
+    other. Comparing that kind of near-optimal-but-untied baseline against
+    trials solved to a tighter/different tolerance produced a real bug
+    during development here: every family, including ones that plainly
+    shouldn't matter, showed the exact same suspiciously-round gain --
+    an artifact of the tolerance mismatch, not a genuine finding. Solving
+    baseline and every trial the same way (see solve_variant() below)
+    closes that gap: any difference reported now reflects the family
+    that was dropped, not which solve happened to land on a better tied
+    solution.
+
+    Unlike the infeasibility deletion filter, dropping one family from an
+    already-feasible model can only relax its feasible region -- it can
+    never turn feasible into infeasible -- so every trial here is expected
+    to land on FEASIBLE/OPTIMAL; a trial that times out inconclusive
+    (UNKNOWN within _SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS) is skipped
+    rather than guessed at, same caution as find_infeasibility_causes().
+
+    Meant to run as a separate, on-demand call *after* the main solve (see
+    views.sensitivity()) -- never inline with run_model() itself. It's
+    O(number of families) resolves on top of the main solve, which would
+    reopen the exact wall-clock-budget problem run_model() was fixed for
+    (see its docstring) if it ran on every request instead of only when
+    the person asks for it from the Results screen.
+
+    Returns {"baseline_pct": float, "families": [{"label", "gain_points"}, ...]},
+    families sorted most-expensive-first and limited to gain_points > 0.5
+    (keeps solver noise off a UI list) -- or {"baseline_pct": None,
+    "families": []} if the baseline itself doesn't solve, or the overall
+    time budget runs out before it does, or anything else goes wrong.
+    Callers should show "not available" rather than an error in that
+    case, same contract as find_infeasibility_causes() returning [].
+    """
+    try:
+        # Same "compute the shared sets once" approach as
+        # find_infeasibility_causes() -- see that function's comment.
+        G, G_t, G_d, G_td = preprocessing(params)
+        priority = compute_priority(params["students_types"], G_t)
+        precomputed_sets = (G, G_t, G_d, G_td, priority)
+
+        def solve_variant(disabled):
+            """
+            Build and solve one variant (baseline when `disabled` is empty,
+            a what-if trial otherwise) on identical solver settings -- see
+            this function's docstring for why that identical-footing
+            comparison matters. Deliberately doesn't use _greedy_hint()
+            either: a hint computed for the *full* model could bias a
+            disabled-family trial toward the baseline's own solution
+            shape, working against the point of asking "what changes if
+            this family is gone".
+            """
+            model, ctx = _build_model(params, disabled=disabled, precomputed_sets=precomputed_sets)
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = _SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS
+            solver.parameters.num_search_workers = 8
+            status = solver.Solve(model)
+            return solver, ctx, status
+
+        started = time.monotonic()
+        baseline_solver, baseline_ctx, baseline_status = solve_variant(frozenset())
+        if baseline_status not in FACTIBLE_STATUSES:
+            return {"baseline_pct": None, "families": []}
+        baseline_share = _top_choice_share(baseline_solver, baseline_ctx)
+
+        families = _candidate_families(params)
+        out = []
+        for key, label in families:
+            if time.monotonic() - started > _SENSITIVITY_TOTAL_TIME_BUDGET_SECONDS:
+                # Out of time -- stop testing; an untested family is simply
+                # not reported, same "under-report, never fabricate" rule
+                # find_infeasibility_causes() follows.
+                break
+            solver, ctx, status = solve_variant({key})
+            if status not in FACTIBLE_STATUSES:
+                continue
+            share = _top_choice_share(solver, ctx)
+            gain = share - baseline_share
+            if gain > 0.5:
+                out.append({"label": label, "gain_points": round(gain, 1)})
+        out.sort(key=lambda r: -r["gain_points"])
+        return {"baseline_pct": round(baseline_share, 1), "families": out}
+    except Exception:
+        return {"baseline_pct": None, "families": []}
