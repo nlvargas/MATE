@@ -69,7 +69,24 @@ def upload_parms(bytes, ID):
     PARAMS_PATH = os.environ.get("MATE_CLUSTER_PARAMS_PATH", "/home/nlvargas/groups/params")
     client = paramiko.SSHClient()
     client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    # Optional project-local known_hosts file, in addition to whatever's
+    # already in the deploying user's own ~/.ssh/known_hosts (loaded above
+    # by load_system_host_keys()) -- lets a deployment pin the cluster's
+    # host key explicitly without requiring every operator to have SSH'd to
+    # it by hand first. Not added to .env.example because it's optional:
+    # left unset, this just falls back to load_system_host_keys() alone.
+    known_hosts_path = os.environ.get("MATE_CLUSTER_KNOWN_HOSTS")
+    if known_hosts_path:
+        client.load_host_keys(known_hosts_path)
+    # RejectPolicy (paramiko's safe default) refuses to connect to a host
+    # whose key isn't already known via the sources above -- unlike the
+    # AutoAddPolicy this replaced, it will never silently trust+cache
+    # whatever key a server presents on first connect, which offered no
+    # protection against a swapped/spoofed host. This does mean the
+    # deploying user's ~/.ssh/known_hosts (or MATE_CLUSTER_KNOWN_HOSTS, if
+    # set) must already contain the cluster's host key -- e.g. from having
+    # SSH'd to it manually once -- before this will connect.
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
     client.connect(HOST, 22, USER, PASSWORD)
     with SCPClient(client.get_transport(), socket_timeout=2*60) as scp:
         fl = BytesIO()
@@ -178,8 +195,16 @@ def create_students_types(students, options, attributes_list):
     for i in types:
         students_types_attr[i] = {x: 0 for x in options}
         student_type = types[i]
-        for attr, j in zip(attributes_list, student_type["attributes"]):
-            char = student_type["attributes"][j]
+        # student_type["attributes"] is {attr_name: value, ...} -- iterate
+        # it directly by (name, value) pairs instead of zipping it
+        # positionally against attributes_list (the caller's separately
+        # built attribute-name list). The previous zip()-based version only
+        # produced the right key because attributes_list and this dict's
+        # key order happened to line up 1:1 -- iterating .items() says the
+        # same thing without depending on two independently-built
+        # sequences staying in identical order. attributes_list is no
+        # longer needed here as a result.
+        for attr, char in student_type["attributes"].items():
             students_types_attr[i][f"{attr}:{char}"] = 1
     return types, students_types_attr
 
@@ -189,8 +214,16 @@ def create_attributes(data):
     for attr in data["options"]:
         attributes[attr] = {}
         for opt in data["options"][attr]:
-            if opt in data["bounds"]:
-                attributes[attr][opt] = data["bounds"][opt]
+            # Keyed by "attr:opt" (the same attribute-value convention as
+            # params["A"] / students_types_attr -- see create_students_types()
+            # above and docs/ARCHITECTURE.md section 4's `R` set), not by the
+            # bare option string: two different attributes can share a value
+            # label (e.g. two Yes/No attributes), and a bare-value key would
+            # collapse their bounds together. Must match the key format
+            # CreateGroups.js's `bounds` state uses on the wire, exactly.
+            bounds_key = f"{attr}:{opt}"
+            if bounds_key in data["bounds"]:
+                attributes[attr][opt] = data["bounds"][bounds_key]
                 if attributes[attr][opt]["min"] == "Min":
                     attributes[attr][opt]["min"] = 0
                 if attributes[attr][opt]["max"] == "Max":
@@ -269,4 +302,19 @@ def create_parms(data):
 
 
 def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
+    # Collision risk: no check against already-queued job IDs before
+    # upload_parms() writes `{ID}_params.txt` on the cluster -- a collision
+    # would silently overwrite another pending job's params file. Left as
+    # size=6 with no collision-check-and-retry loop against remote SSH
+    # state (that would add real complexity -- an extra SSH round-trip --
+    # and a new failure mode, for a very low-probability event): at 36
+    # possible chars, size=6 is 36**6 (~2.18 billion) possible IDs, so even
+    # a few dozen simultaneously *queued* cluster jobs collide with
+    # negligible probability (birthday bound).
+    #
+    # `size`/`chars` can't be casually widened to add more entropy either:
+    # views.py's remove_params_from_queue() validates params_id against a
+    # hardcoded r"[A-Z0-9]{6}" (a path-traversal guard on a local file
+    # path), so this exact format is a cross-file contract -- a length or
+    # charset change here needs a matching change in views.py.
     return ''.join(random.choice(chars) for _ in range(size))

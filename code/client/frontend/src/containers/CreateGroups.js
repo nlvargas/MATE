@@ -12,7 +12,7 @@ export default function CreateGroups(props) {
           preferencesNumber, options, students, setRunResult, goResults, auth } = props;
   const { t, tf } = useI18n();
 
-  const [cookies, setCookie] = useCookies(['groupsNumber', 'minStudents', 'maxStudents', 'email', 'maxSolveSeconds']);
+  const [cookies, setCookie] = useCookies(['groupsNumber', 'minStudents', 'maxStudents', 'email', 'maxSolveSeconds', 'usedPreferences', 'bounds', 'capacity', 'fixedDay', 'prefsBounds']);
   const [cookiesLoaded, setCookiesLoaded] = useState(false);
 
   const totalStudents = students.length;
@@ -43,6 +43,10 @@ export default function CreateGroups(props) {
       if (cookies.maxSolveSeconds) {
         const v = parseInt(cookies.maxSolveSeconds);
         if (!Number.isNaN(v)) setMaxSolveSeconds(Math.min(Math.max(v, syncTmaxMin), syncTmaxMax));
+      }
+      if (cookies.usedPreferences) {
+        const v = parseInt(cookies.usedPreferences);
+        if (!Number.isNaN(v)) setUsedPreferences(v);
       }
       setCookiesLoaded(true);
     }
@@ -84,18 +88,24 @@ export default function CreateGroups(props) {
     // run -- that's what let `bounds` join the deps below without an
     // infinite loop (a fresh-but-identical object every run would have
     // meant "bounds changed" -> re-run -> "bounds changed" -> ... forever).
+    // Keyed by `${attr}:${value}` (not the bare value) so two different
+    // attributes that happen to share a value label (e.g. two "Yes"/"No"
+    // attributes) get independent bounds instead of colliding -- must
+    // match backend/utils.py's create_attributes(), which reads this same
+    // composite key back out of data["bounds"].
     let changed = false;
     const b = { ...bounds };
     Object.keys(options || {}).forEach((attr) => {
       Object.keys(options[attr]).forEach((value) => {
-        if (!b[value]) { b[value] = { min: 0, max: totalStudents, solo: false }; changed = true; }
+        const key = `${attr}:${value}`;
+        if (!b[key]) { b[key] = { min: 0, max: totalStudents, solo: false }; changed = true; }
       });
     });
     if (changed) setBounds(b);
   }, [options, bounds, totalStudents]);
 
-  function updateBound(value, patch) {
-    setBounds((prev) => ({ ...prev, [value]: { ...prev[value], ...patch } }));
+  function updateBound(key, patch) {
+    setBounds((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
   }
 
   // -------------------- Section rules --------------------
@@ -140,15 +150,54 @@ export default function CreateGroups(props) {
     setPrefsBounds((prev) => ({ ...prev, [pref]: { ...prev[pref], ...patch } }));
   }
 
+  // Restore the object-valued fields (bounds/capacity/fixedDay/prefsBounds)
+  // that runModelRequest() below saves as JSON-stringified cookies. Split
+  // out from the primitive-field restore effect above only because these
+  // setters weren't in scope up there; it runs in the very same initial
+  // commit (still gated by the shared !cookiesLoaded flag, which that
+  // other effect flips true), so this is still a single one-shot restore,
+  // not a second independent one.
+  //
+  // The restored value becomes the *starting point* the seeding effects
+  // above (bounds/capacity/fixedDay/prefsBounds) then merge missing
+  // options/modules/preferences into on the next render -- those effects
+  // only fill in keys that are still absent, so a customization restored
+  // here is never clobbered by them.
+  useEffect(() => {
+    if (cookies && !cookiesLoaded) {
+      const parseCookieObject = (raw) => {
+        if (!raw) return null;
+        try {
+          // react-cookie hands back an already-parsed object when it can,
+          // but a cookie can be hand-edited, truncated, or left over from
+          // an older shape -- guard the parse so a corrupt cookie just
+          // means "nothing restored" instead of crashing this effect.
+          return typeof raw === "string" ? JSON.parse(raw) : raw;
+        } catch (e) {
+          return null;
+        }
+      };
+      const savedBounds = parseCookieObject(cookies.bounds);
+      if (savedBounds) setBounds(savedBounds);
+      const savedCapacity = parseCookieObject(cookies.capacity);
+      if (savedCapacity) setCapacity(savedCapacity);
+      const savedFixedDay = parseCookieObject(cookies.fixedDay);
+      if (savedFixedDay) setFixedDay(savedFixedDay);
+      const savedPrefsBounds = parseCookieObject(cookies.prefsBounds);
+      if (savedPrefsBounds) setPrefsBounds(savedPrefsBounds);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cookies, cookiesLoaded]);
+
   // -------------------- Client-side feasibility checks --------------------
   const issues = useMemo(() => {
     const found = [];
     if (totalStudents / groupsNumber > maxStudents || totalStudents / groupsNumber < minStudents) {
       found.push(tf("causeGroupSize", { students: totalStudents, groups: groupsNumber, min: minStudents, max: maxStudents }));
     }
-    Object.entries(bounds).forEach(([value, b]) => {
+    Object.entries(bounds).forEach(([key, b]) => {
       if (!b.solo && b.min > maxStudents) {
-        found.push(`${value}: min (${b.min}) > ${t("attributeMax")} (${maxStudents})`);
+        found.push(`${key}: min (${b.min}) > ${t("attributeMax")} (${maxStudents})`);
       }
     });
     if (preferences.length) {
@@ -183,6 +232,15 @@ export default function CreateGroups(props) {
     setCookie('maxStudents', maxStudents, { path: '/' });
     setCookie('email', email, { path: '/' });
     setCookie('maxSolveSeconds', maxSolveSeconds, { path: '/' });
+    setCookie('usedPreferences', usedPreferences, { path: '/' });
+    // bounds/capacity/fixedDay/prefsBounds are objects, so (unlike the
+    // primitive fields above) they need JSON-stringifying to round-trip
+    // through a cookie -- restored via JSON.parse in the cookie-restore
+    // effect near this container's other useState calls.
+    setCookie('bounds', JSON.stringify(bounds), { path: '/' });
+    setCookie('capacity', JSON.stringify(capacity), { path: '/' });
+    setCookie('fixedDay', JSON.stringify(fixedDay), { path: '/' });
+    setCookie('prefsBounds', JSON.stringify(prefsBounds), { path: '/' });
 
     const body = {
       attributes, preferences, groupsNumber, minStudents, maxStudents,
@@ -262,7 +320,8 @@ export default function CreateGroups(props) {
           </div>
           <div className="opt-count" style={{ marginBottom: 2 }}>{t("perGroup")}</div>
           <DualSlider min={1} max={sliderMax} lo={minStudents} hi={maxStudents}
-                      onChangeLo={setMinStudents} onChangeHi={setMaxStudents} />
+                      onChangeLo={setMinStudents} onChangeHi={setMaxStudents}
+                      label={t("groupSizeLabel")} />
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 26 }}>
             <label className="field-label">{t("emailLabel")}</label>
@@ -276,20 +335,22 @@ export default function CreateGroups(props) {
             <p className="card-sub">{t("attributeBoundsSub")}</p>
             {Object.keys(options).map((attr) => (
               Object.keys(options[attr]).map((value) => {
-                const b = bounds[value] || { min: 0, max: totalStudents, solo: false };
+                const key = `${attr}:${value}`;
+                const b = bounds[key] || { min: 0, max: totalStudents, solo: false };
                 const count = options[attr][value];
                 return (
-                  <div className="opt-row" key={value}>
+                  <div className="opt-row" key={key}>
                     <div className="opt-top">
                       <div><span className="opt-name">{value}</span> <span className="opt-count">· {attr}</span></div>
                       <span className="opt-count">{count} {t("markedThis")}</span>
                     </div>
                     <DualSlider min={0} max={Math.max(1, totalStudents)} lo={b.min} hi={b.max === null ? totalStudents : b.max}
-                                onChangeLo={(v) => updateBound(value, { min: v })}
-                                onChangeHi={(v) => updateBound(value, { max: v })} />
+                                onChangeLo={(v) => updateBound(key, { min: v })}
+                                onChangeHi={(v) => updateBound(key, { max: v })}
+                                label={`${value} (${attr})`} />
                     <div className="solo-line">
                       <label className="switch" style={{ width: 30, height: 18 }}>
-                        <input type="checkbox" checked={b.solo} onChange={(e) => updateBound(value, { solo: e.target.checked })} />
+                        <input type="checkbox" checked={b.solo} onChange={(e) => updateBound(key, { solo: e.target.checked })} />
                         <span className="track" />
                       </label>
                       <label>{t("soloToggle")}</label>
@@ -361,7 +422,8 @@ export default function CreateGroups(props) {
                   <div className="opt-top"><span className="opt-name">{p}</span></div>
                   <DualSlider min={0} max={Math.max(1, groupsNumber)} lo={pb.min} hi={pb.max === null ? groupsNumber : pb.max}
                               onChangeLo={(v) => updatePrefBound(p, { min: v })}
-                              onChangeHi={(v) => updatePrefBound(p, { max: v })} />
+                              onChangeHi={(v) => updatePrefBound(p, { max: v })}
+                              label={p} />
                 </div>
               );
             })}
@@ -369,7 +431,7 @@ export default function CreateGroups(props) {
         )}
 
         <div className="nav-row">
-          <button className="btn" onClick={() => setStep(step - 1)}>{t("back")}</button>
+          <button className="btn" disabled={running} onClick={() => setStep(step - 1)}>{t("back")}</button>
           <span />
         </div>
       </div>
@@ -411,7 +473,8 @@ export default function CreateGroups(props) {
                 <InfoTip text={t("maxSolveTimeTooltip")} />
               </div>
               <SingleSlider min={syncTmaxMin} max={syncTmaxMax} step={1}
-                            value={maxSolveSeconds} onChange={setMaxSolveSeconds} suffix="s" />
+                            value={maxSolveSeconds} onChange={setMaxSolveSeconds} suffix="s"
+                            ariaLabel={t("maxSolveTimeLabel")} />
             </div>
           )}
           {execPath === "async" && !auth.authenticated && (
