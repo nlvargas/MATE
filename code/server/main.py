@@ -5,8 +5,12 @@ from optimization import run_model
 from utils import get_data, send_mail, send_admin_mail, send_error_mail, create_excel
 
 
+ADMIN_EMAIL = "nlvargas@uc.cl"
+
+
 def run(ID):
     print("Calling main")
+    data = None
     try:
         data = get_data(ID)
         sol = run_model(data)
@@ -20,12 +24,19 @@ def run(ID):
             attributes = list(data["attributes"].keys())
             create_excel(sol, modules, students_preferences_number, attributes, xlsx_filepath)
             send_mail(data["email"], filepath=xlsx_filepath)
-            send_admin_mail("nlvargas@uc.cl", xlsx_filepath=xlsx_filepath, txt_filepath=txt_filepath)
+            send_admin_mail(ADMIN_EMAIL, xlsx_filepath=xlsx_filepath, txt_filepath=txt_filepath)
         else:
             send_mail(data["email"])
     except:
         print(traceback.format_exc())
-        send_error_mail(data["email"])
+        # data may never have been bound (e.g. get_data(ID) itself raised on
+        # a corrupt/missing params file) -- fall back to notifying the admin
+        # instead of crashing this handler with an UnboundLocalError/KeyError
+        # and masking the real failure.
+        if data is not None and "email" in data:
+            send_error_mail(data["email"])
+        else:
+            send_error_mail(ADMIN_EMAIL)
 
 
 if __name__ == "__main__":

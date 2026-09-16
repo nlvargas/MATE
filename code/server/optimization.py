@@ -1,4 +1,5 @@
 import itertools
+import os
 import gurobipy as gp
 
 from model_common import preprocessing, get_min_capacity, group_display_name, compute_priority
@@ -173,7 +174,16 @@ def run_model(params):
 
     # -------------------- Results --------------------
     results = []
-    factible = True if m.status in (2, 13) else False
+    # SolCount (Gurobi's own count of feasible incumbents found), not the
+    # status code, is the correct "do we have something usable" test: a MIP
+    # that hits m.Params.TimeLimit while still holding a feasible incumbent
+    # reports status TIME_LIMIT (9), not OPTIMAL (2) or SUBOPTIMAL (13), even
+    # though its solution is perfectly usable -- and TIME_LIMIT is exactly
+    # what's expected on the cluster path for large/hard rosters that need
+    # the full time budget. Mirrors optimization_cpsat.py's
+    # FACTIBLE_STATUSES = (cp_model.OPTIMAL, cp_model.FEASIBLE) handling of
+    # the analogous "solver hit a limit but still has an incumbent" case.
+    factible = m.SolCount > 0
     if factible:
         for g in G:
             students = [i for i in T if y[i, g].X != 0]
@@ -181,8 +191,14 @@ def run_model(params):
                 group_name = group_display_name(g)
                 students = assign_students(params["students"], students_types, g, y, T)
                 results.append({"group": g, "students": students, "group_name": group_name})
-    else:
+    elif m.status == gp.GRB.INFEASIBLE:
+        # Only call computeIIS() when the model was actually proven
+        # infeasible -- calling it on e.g. a TIME_LIMIT-with-no-incumbent or
+        # INF_OR_UNBD outcome raises a GurobiError instead of a usable
+        # diagnosis.
         m.computeIIS()
-        m.write("groups/outputs/IIS.ilp")
+        iis_path = "groups/outputs/IIS.ilp"
+        os.makedirs(os.path.dirname(iis_path), exist_ok=True)
+        m.write(iis_path)
 
     return {"results": results, "factible": factible, "priority": priority}
