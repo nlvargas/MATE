@@ -5,7 +5,7 @@ import json
 import smtplib
 from openpyxl import Workbook
 
-from model_common import student_type_key
+from model_common import student_type_key, UNRANKED_PRIORITY
 
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -81,7 +81,7 @@ def get_report(results, students_preferences_number, hasModules):
         for student in group["students"]:
             student_type_id = student_to_student_type_id(student, hasModules)
             student_priority = priority[student_type_id][group["group"]]
-            if student_priority not in (100, 1000):
+            if student_priority != UNRANKED_PRIORITY:
                 values[student_priority] += 1
             else:
                 values["none"] += 1
@@ -142,16 +142,16 @@ def send_mail(receiver_address, filepath=None):
         mail_content = "Adjuntamos los resultados obtenidos utilizando MATE"
         message.attach(MIMEText(mail_content, 'plain'))
         part = MIMEBase('application', "octet-stream")
-        part.set_payload(open(filepath, "rb").read())
+        with open(filepath, "rb") as f:
+            part.set_payload(f.read())
         encoders.encode_base64(part)
         part.add_header('Content-Disposition', f'attachment; filename="results.xlsx"')
         message.attach(part)
-    session = smtplib.SMTP('smtp.gmail.com', 587) 
-    session.starttls()
-    session.login(sender_address, sender_pass)
-    text = message.as_string()
-    session.sendmail(sender_address, receiver_address, text)
-    session.quit()
+    with smtplib.SMTP('smtp.gmail.com', 587) as session:
+        session.starttls()
+        session.login(sender_address, sender_pass)
+        text = message.as_string()
+        session.sendmail(sender_address, receiver_address, text)
 
 
 def send_admin_mail(receiver_address, xlsx_filepath, txt_filepath):
@@ -164,23 +164,24 @@ def send_admin_mail(receiver_address, xlsx_filepath, txt_filepath):
     message.attach(MIMEText(mail_content, 'plain'))
 
     part = MIMEBase('application', "octet-stream")
-    part.set_payload(open(xlsx_filepath, "rb").read())
+    with open(xlsx_filepath, "rb") as f:
+        part.set_payload(f.read())
     encoders.encode_base64(part)
     part.add_header('Content-Disposition', f'attachment; filename="results.xlsx"')
     message.attach(part)
 
     part = MIMEBase('application', "octet-stream")
-    part.set_payload(open(txt_filepath, "rb").read())
+    with open(txt_filepath, "rb") as f:
+        part.set_payload(f.read())
     encoders.encode_base64(part)
     part.add_header('Content-Disposition', f'attachment; filename="result.txt"')
     message.attach(part)
 
-    session = smtplib.SMTP('smtp.gmail.com', 587) 
-    session.starttls()
-    session.login(sender_address, sender_pass)
-    text = message.as_string()
-    session.sendmail(sender_address, receiver_address, text)
-    session.quit()
+    with smtplib.SMTP('smtp.gmail.com', 587) as session:
+        session.starttls()
+        session.login(sender_address, sender_pass)
+        text = message.as_string()
+        session.sendmail(sender_address, receiver_address, text)
 
 
 def send_error_mail(receiver_address):
