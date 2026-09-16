@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 
 from django.conf import settings
@@ -30,11 +31,11 @@ def upload(request):
     f = request.FILES['file']
     wb = load_workbook(filename=BytesIO(f.read()))
     attributes = request.POST["attributes"].split(",")
-    if request.POST["modules"] in ([], ""):
+    if request.POST["modules"] == "":
         modules = []
     else:
         modules = request.POST["modules"].split(",")
-    preferences_number = int(request.POST["preferencesNumber"][0])
+    preferences_number = int(request.POST["preferencesNumber"])
 
     students, options = create_students(wb, attributes, modules, preferences_number)
 
@@ -233,6 +234,13 @@ def sensitivity(request):
 
 @api_view(['GET'])
 def remove_params_from_queue(request, params_id):
+    # params_id must match id_generator()'s output format exactly (6 chars,
+    # uppercase A-Z/0-9) before it's used to build a filesystem path below --
+    # otherwise a crafted params_id could traverse outside the
+    # model_params/{pending,done} directories.
+    if not re.fullmatch(r"[A-Z0-9]{6}", params_id):
+        return Response({"error": "invalid params_id"}, status=status.HTTP_400_BAD_REQUEST)
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.replace(f"{BASE_DIR}/data/model_params/pending/{params_id}.json",
                f"{BASE_DIR}/data/model_params/done/{params_id}.json")
+    return Response({"removed": params_id}, status=status.HTTP_200_OK)

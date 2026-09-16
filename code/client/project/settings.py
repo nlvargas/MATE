@@ -2,6 +2,8 @@ import os
 import sys
 import environ
 
+from django.core.exceptions import ImproperlyConfigured
+
 
 PROJECT_DIR = os.path.dirname(__file__)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -120,13 +122,30 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", default="django-insecure-change-me-see-env
 # DJANGO_DEBUG=0 explicitly if it relies on the DEBUG=False branch.
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") not in ("0", "false", "False", "")
 
-# ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS').split(' ')
-ALLOWED_HOSTS = [
-    "127.0.0.1",
-     "0.0.0.0",
-    "localhost",
-    "my49ptyg5m.execute-api.us-east-2.amazonaws.com",
-]
+# The placeholder above is fine for local dev (DEBUG=True, see README's
+# "Running locally") but must never be the *real* key -- SESSION_ENGINE is
+# signed_cookies (no server-side session store), so SECRET_KEY is what
+# actually stops someone from forging a session claiming an allowed uc.cl
+# email (see backend/msft_auth.py's session_email_allowed()). Fail loudly at
+# import time rather than silently running production on a public, well-known
+# key.
+_DEFAULT_SECRET_KEY = "django-insecure-change-me-see-env-example"
+if not DEBUG and SECRET_KEY == _DEFAULT_SECRET_KEY:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY is not set (still using the local-dev placeholder) "
+        "while DJANGO_DEBUG=0. Set a real, unique DJANGO_SECRET_KEY in the "
+        "environment/.env before running with DEBUG off -- see .env.example."
+    )
+
+# Comma-separated, same pattern as MATE_ALLOWED_EMAIL_DOMAINS above -- falls
+# back to the previously-hardcoded list (local dev hosts plus this
+# deployment's API Gateway hostname) so nothing breaks where the env var
+# isn't set yet.
+MATE_ALLOWED_HOST = os.environ.get(
+    "MATE_ALLOWED_HOST",
+    "127.0.0.1,0.0.0.0,localhost,my49ptyg5m.execute-api.us-east-2.amazonaws.com",
+)
+ALLOWED_HOSTS = [h.strip() for h in MATE_ALLOWED_HOST.split(",") if h.strip()]
 
 if DEBUG:
     STATIC_URL = '/static/'
@@ -278,8 +297,8 @@ HOST_SCHEME                     = "http://"
 # SECURE_PROXY_SSL_HEADER         = None
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT             = False
-SESSION_COOKIE_SECURE           = False
-CSRF_COOKIE_SECURE              = False
+SESSION_COOKIE_SECURE           = not DEBUG
+CSRF_COOKIE_SECURE              = not DEBUG
 SECURE_HSTS_SECONDS             = None
 SECURE_HSTS_INCLUDE_SUBDOMAINS  = False
 SECURE_FRAME_DENY               = False
