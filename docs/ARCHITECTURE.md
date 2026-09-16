@@ -107,13 +107,14 @@ result arrives later, by email, as a spreadsheet.
 
 ## 4. The model
 
-The CP-SAT formulation lives in `code/client/backend/optimization_cpsat.py`'s
-`_build_model()` (starts at line 157). It's a straight translation of an
-original Gurobi MIP formulation from the project's earlier design
-documentation (not included in this repo); `optimization.py`
-(the Gurobi backend, in `code/server/`) and `optimization_cpsat.py` share
-their non-solver logic through `code/server/model_common.py` so the two
-backends can't drift apart on what a "group" or a "topic family" means.
+The CP-SAT formulation lives in `optimization_cpsat.py`'s `_build_model()`.
+It's a straight translation of an original Gurobi MIP formulation from the
+project's earlier design documentation (not included in this repo);
+`optimization.py` (the Gurobi backend, in `code/server/`) and
+`optimization_cpsat.py` share their non-solver logic through
+`code/server/model_common.py` so the two backends can't drift apart on what
+a "group" or a "topic family" means, or on the bounds each variable below
+is declared with.
 
 ### Sets
 
@@ -134,14 +135,10 @@ letter notation (`I` for types, `T` for topics) when discussing the math
 below, but quotes the actual code identifiers (`T`, `preferences`) whenever
 citing code.
 
-### Key decision variable: `y[i, g]`
+### Key decision variable: y_{i,g}
 
-```python
-y = {(i, g): model.NewIntVar(0, upper_number, f"y_{i}_{g}") for i in T for g in G}
-```
-
-`y[i, g]` is an **integer** — how many students of type `i` are assigned to
-group `g` — not a binary "is student *s* in group *g*" variable per student.
+y_{i,g} is an **integer** — how many students of type i are assigned to
+group g — not a binary "is student s in group g" variable per student.
 This is the whole point of the student-type preprocessing step (§5): the
 model only ever reasons about *counts* of interchangeable students, never
 about individual student identities, and the actual per-student rosters are
@@ -149,61 +146,74 @@ reconstructed afterwards (§7).
 
 ### Other variables
 
-| Code | Manual | Meaning |
-|---|---|---|
-| `w[g]` | `w_g` | 1 if group `g` has any student assigned, else 0 |
-| `z[i]` | `z_i` | total priority-cost accumulated by type `i`'s assignment |
-| `z_max` | `z_max` | the worst (highest) `z[i]` across all types — the worst-off student type |
-| `Q[g, attr_key]` | `q_{gr}` | how many students with attribute-value `attr_key` end up in group `g` |
-| `P[g, attr_key]` | `p_{gr}` | 1 if group `g` has *zero* students with that attribute-value (only meaningful when that attribute-value is configured "solo": no group may have none of this trait) |
-| `M[g]` | `m_g` | how many students of unknown preference end up in group `g` |
-| `M_max` | `m_max` | the worst (highest) `M[g]` across all groups |
-| `u[p, d]` | `u_{tm}` | 1 if topic `p` is assigned into section `d` |
-| `o[p]` | `o_t` | 1 if any group is actually formed for topic `p` |
+| Variable | Meaning |
+|---|---|
+| w_g | 1 if group g has any student assigned, else 0 |
+| z_i | total priority-cost accumulated by type i's assignment |
+| z_max | the worst (highest) z_i across all types — the worst-off student type |
+| q_{g,r} | how many students with attribute-value r end up in group g |
+| p_{g,r} | 1 if group g has *zero* students with attribute-value r (only meaningful when r is configured "solo": no group may have none of this trait) |
+| m_g | how many students of unknown preference end up in group g |
+| m_max | the worst (highest) m_g across all groups |
+| u_{t,m} | 1 if topic t is assigned into section m |
+| o_t | 1 if any group is actually formed for topic t |
 
 ### Objective
 
-```python
-model.Minimize(
-    sum(students_types[i]["flexibility"] * z[i] for i in T) + BALANCE_CONSTANT * (z_max + M_max)
-)
-```
-
-matches the manual's
-
 > min  Σᵢ Nᵢzᵢ + 1000·z_max + 1000·m_max
 
-exactly, with `BALANCE_CONSTANT = 1000` playing the role of the manual's
-hardcoded `1000` weight (`K` in the code's comment), and `flexibility`
-playing the role of `N_i` — the manual defines `N_i` as a type's total
-section availability (`Σ_m D_im`); the code computes the same value as
-`StudentType.flexibility = sum(int(d) for d in disponibilities)`
-(`code/client/backend/utils.py`). The first term minimizes total
-assigned-priority (cheap topic-preference mismatches, weighted by how
-flexible a type's schedule is), and the `1000×` terms heavily penalize
-whichever single student type is worst off (`z_max`) and whichever single
-group ends up with the most "we don't know this student's real preference"
-placements (`M_max`) — so the solver won't trade one badly-served type for a
-slightly cheaper average across everyone else.
+N_i is a type's total section availability (how many of the configured
+sections that type's students can actually attend), computed once during
+preprocessing (§5). The first term minimizes total assigned-priority
+(cheap topic-preference mismatches, weighted by how flexible a type's
+schedule is), and the 1000× terms heavily penalize whichever single
+student type is worst off (z_max) and whichever single group ends up with
+the most "we don't know this student's real preference" placements
+(m_max) — so the solver won't trade one badly-served type for a slightly
+cheaper average across everyone else. Both solver backends implement this
+identically, with the same 1000 weight on both penalty terms.
 
 ### Cross-check against the original formulation
 
-The original Gurobi formulation's constraints (a) through (q) all have a direct counterpart
-in `_build_model()`: (a) `sum(y[i,g] for g in G) == students_types[i]["students"]`,
-(b) `y[i,g] <= upper_number * w[g]`, (c) `sum(w[g]) == groups_number`,
-(d) the `lower_number`/`upper_number` group-size band, (e) the per-topic
-coverage bounds via `G_t`, (h)/(i) the `M[g]`/`M_max` unknown-preference
-bookkeeping, (j)/(k) `z[i]`/`z_max`, (l)/(m) the attribute-balance `Q`/`P`
-pair, (n) section capacity and per-type availability, (o)/(p) the
-same-section (`sameDay`) and fixed-section (`fixedDay`) rules via `u[p, d]`.
-The implementation matches the formulation with a couple of UI-facing
-renames rather than any behavioral difference — most visibly,
-`group_display_name()` in `code/server/model_common.py` (line 52) strips an
-internal `"Tema "` ("topic" in Spanish) prefix and a disambiguating `"(Nn)"`
-suffix from a group's internal identifier (e.g. `"Tema Scheduling - Mon
-10:00 (N1)"`) before it's shown to the user (`"Scheduling - Mon 10:00"`) —
+The original Gurobi formulation's constraints (a) through (p) all have a
+direct counterpart in the model: (a) every type is fully placed,
+Σ_g y_{i,g} = R_i for every i; (b) a group can't receive students unless
+it's switched on, y_{i,g} ≤ w_g·Q_max; (c) exactly the target number of
+groups gets switched on; (d) the group-size band,
+Q_min·w_g ≤ Σ_i y_{i,g} ≤ Q_max·w_g; (e) the per-topic group-count bounds;
+(h)/(i) the m_g/m_max unknown-preference bookkeeping; (j)/(k) z_i/z_max;
+(l)/(m) the attribute-balance q_{g,r}/p_{g,r} pair; (n) section capacity
+and per-type availability; (o)/(p) the same-section and fixed-section
+rules via u_{t,m}. The implementation matches the formulation with a
+couple of UI-facing renames rather than any behavioral difference — most
+visibly, a group's internal identifier carries a disambiguating
+prefix/suffix that's stripped before it's shown to the user (e.g.
+"Scheduling - Mon 10:00" on screen, for a longer, uglier internal key) —
 the internal, undisplayed identifier is still what's used to index
 constraints.
+
+### Variable bounds
+
+Every variable above is declared with the tightest upper bound its role in
+the model actually allows, rather than an unbounded one or one scaled to
+the whole roster. A group can never hold more than Q_max students, so
+y_{i,g}, q_{g,r}, and m_g are all bounded by Q_max, not by the size of the
+whole roster. A type's priority cost z_i can never exceed 1000 times that
+type's own headcount, so z_i is bounded per type; z_max, in turn, only
+ever needs to be at least as large as the worst single z_i, so its bound
+is 1000 times the *largest* type's headcount, not 1000 times the whole
+roster.
+
+This matters because a solver's search doesn't spend most of its time
+reasoning directly about the integer solution a person has in mind — it
+spends most of it building and re-solving linear relaxations at each node,
+and a looser declared bound means a looser relaxation to start from.
+CP-SAT has always declared these bounds explicitly; the Gurobi backend
+originally left several of them (y, z, z_max, q, m, and m_max) unbounded
+above and relied entirely on the constraints further down to pin them in
+place during solving, instead of declaring them up front. Both backends
+now declare the same bounds, computed the same way, so neither one starts
+from a weaker relaxation than the other.
 
 ## 5. Preprocessing: student types instead of one variable per student
 
@@ -216,27 +226,21 @@ assignments that differ only in *which* interchangeable student went where
 — those are the same solution, relabeled, and CP-SAT has to rediscover that
 equivalence on its own unless the model is built to avoid creating it.
 
-`create_students_types()` in `code/client/backend/utils.py` (starts at line
-163) avoids this by grouping students into **student types** before the
-model is ever built: two students are the same type if and only if they
-have the same attributes, the same topic preferences, and (when sections are
-configured) the same section availability. The type key is built as
-
-```python
-student_type_id = f"{attributes} - {preferences} - {disponibilities}"
-```
-
-(line 172; the server-side solver mirrors the identical logic in
-`code/server/utils.py`'s `student_to_student_type_id()`, so a type computed
-during upload and a type looked up mid-solve always agree). Each type
-(`StudentType`, same file, line ~46) carries a `students` count (the
-manual's `R_i`) and a `students_list` of the actual original student IDs
-that belong to it.
+`create_students_types()` in `code/client/backend/utils.py` avoids this by
+grouping students into **student types** before the model is ever built:
+two students are the same type if and only if they have the same
+attributes, the same topic preferences, and (when sections are configured)
+the same section availability. The type key is built by concatenating a
+student's attributes, preferences, and section availability into one
+string; the server-side solver's own type-key function mirrors this
+identical logic, so a type computed during upload and a type looked up
+mid-solve always agree. Each type carries a students count (the manual's
+R_i) and a list of the actual original student IDs that belong to it.
 
 **Concrete example**: 50 students who are all Male, from PUC, ranked
 Scheduling 1st and Vehicle Routing 2nd, with no other differences, collapse
-into a single student type with `students = 50` — the model gets **one**
-`y[i, g]` variable per group for that type, not fifty. If those same 50
+into a single student type with a headcount of 50 — the model gets **one**
+y_{i,g} variable per group for that type, not fifty. If those same 50
 students had been modeled individually, the solver would face
 50!-many equivalent relabelings of any given assignment among themselves
 alone; collapsing them removes that symmetry entirely rather than asking
@@ -250,11 +254,11 @@ symmetry the solver has to contend with.
 
 ## 6. The greedy warm-start heuristic
 
-`_greedy_hint()` in `code/client/backend/optimization_cpsat.py` (starts at line 423)
-is a cheap, pure-Python constructive heuristic — it makes no solver calls —
-that builds a plausible-but-not-necessarily-optimal initial assignment,
-handed to CP-SAT via `model.AddHint()` in `run_model()` (line ~502) so the
-solver's search starts from a reasonable point instead of nothing.
+`_greedy_hint()` in `code/client/backend/optimization_cpsat.py` is a cheap,
+pure-Python constructive heuristic — it makes no solver calls — that builds
+a plausible-but-not-necessarily-optimal initial assignment, handed to
+CP-SAT via `model.AddHint()` in `run_model()` so the solver's search starts
+from a reasonable point instead of nothing.
 
 It runs in two passes:
 
@@ -303,29 +307,14 @@ documented dead end rather than deleted.
 
 ## 7. Post-processing: turning type-counts back into actual students
 
-The solved model only tells you `y[i, g]` — how many students of type `i`
-ended up in group `g`, a **count**, not *which* students. `assign_students()`
-in `code/client/backend/optimization_cpsat.py` (starts at line 105) does the
-reverse mapping:
-
-```python
-def assign_students(students_dict, students_types, student_type_name, solver, y, T):
-    students = []
-    for i in T:
-        sol = solver.Value(y[i, student_type_name])
-        if sol > 0:
-            student_type = students_types[i]
-            for _ in range(sol):
-                student = student_type["students_list"].pop()
-                students.append(students_dict[student])
-    return students
-```
-
-For each type `i` and group `g` where the solved `y[i, g] > 0`, it pops that
-many actual student IDs off type `i`'s `students_list` (the list of original
-student IDs built during preprocessing, §5) and looks each one up in the
-original student dictionary — building the real per-group roster that the
-Results screen and the emailed Excel export both show.
+The solved model only tells you y_{i,g} — how many students of type i
+ended up in group g, a **count**, not *which* students. `assign_students()`
+in `code/client/backend/optimization_cpsat.py` does the reverse mapping:
+for each type i and group g where the solved y_{i,g} is greater than zero,
+it pops that many actual student IDs off type i's list of original student
+IDs (built during preprocessing, §5) and looks each one up in the original
+student dictionary — building the real per-group roster that the Results
+screen and the emailed Excel export both show.
 
 This is what makes the type-collapsing trick from §5 transparent to the end
 result: the solver only ever reasoned about counts of interchangeable
@@ -339,15 +328,10 @@ within a type can make the assignment better or worse.
 
 ## 8. Online vs. offline flow for large models
 
-`run_model` in `code/client/backend/views.py` (starts around line 91)
-branches on roster size:
+`run_model` in `code/client/backend/views.py` branches on roster size:
+small rosters are solved in-request, large ones handed off to compute.
 
-```python
-if total_students <= settings.SYNC_SOLVE_MAX_STUDENTS:
-    ...
-```
-
-**Small rosters (`total_students <= SYNC_SOLVE_MAX_STUDENTS`, default 100 —
+**Small rosters (total_students <= SYNC_SOLVE_MAX_STUDENTS, default 100 —
 `project/settings.py`)** take the *online*/sync path: `_run_solver()` calls
 straight into `optimization_cpsat.run_model()` (or `optimization.run_model()`
 for Gurobi) inside the same Django worker/Lambda invocation that received
@@ -357,7 +341,7 @@ path the live demo (§9) exercises; a 48-student roster resolves in well
 under a second.
 
 **Large rosters** take the *offline*/async path instead. `upload_parms()`
-in `code/client/backend/utils.py` (starts at line 63):
+in `code/client/backend/utils.py`:
 
 1. gzip-compresses the full solve parameters (`compressStringToBytes()`),
 2. opens an SSH connection (`paramiko`) to the PUC cluster
@@ -480,10 +464,10 @@ trial.** `run_model()`'s production tuning (~20s budget, 0.01 relative gap
 -- chosen so the sync path stays under API Gateway's 29s cap) can return a
 solution that's within 1% of optimal on the *overall* objective while still
 being meaningfully worse on #1-choice placement specifically: preference
-priority and the balance penalty share one objective
-(`BALANCE_CONSTANT * (z_max + M_max) + sum(flexibility * z[i])`), and since
-`UNRANKED_PRIORITY` (1000) is the same order of magnitude as
-`BALANCE_CONSTANT` (1000), a 1% gap on a multi-thousand-point objective is
+priority and the balance penalty share one objective (the same
+1000·z_max + 1000·m_max + Σᵢ Nᵢzᵢ from §4), and since the unranked-
+preference penalty (1000) is the same order of magnitude as the balance
+weight (also 1000), a 1% gap on a multi-thousand-point objective is
 easily enough slack to flip several students between rank 1 and rank 2
 without CP-SAT ever being told to prefer one tied solution over another.
 Comparing a baseline solved that way against trials solved to a different,

@@ -2,7 +2,9 @@ import itertools
 import os
 import gurobipy as gp
 
-from model_common import preprocessing, get_min_capacity, group_display_name, compute_priority
+from model_common import (
+    preprocessing, get_min_capacity, group_display_name, compute_priority, UNRANKED_PRIORITY,
+)
 
 
 def assign_students(students_dict, students_types, student_type_name, y, T):
@@ -73,18 +75,37 @@ def run_model(params):
     G, G_t, G_d, G_td = preprocessing(params)
     priority = compute_priority(students_types, G_t)
 
+    # A type's headcount is the tightest valid upper bound for any variable
+    # that counts (or is derived from) that type's own students -- mirrors
+    # optimization_cpsat.py's identically-named total_by_type/total_students,
+    # kept here in lockstep so both backends reason over the same root-node
+    # relaxation instead of Gurobi inferring these bounds late, from the
+    # constraints alone.
+    total_by_type = {i: max(1, students_types[i]["students"]) for i in T}
+    max_type_size = max(total_by_type.values())
+
     # -------------------- Model --------------------
     m = gp.Model()
 
     # -------------------- Vars --------------------
-    y = m.addVars(itertools.product(T, G), vtype=gp.GRB.INTEGER, lb=0, name="y")
+    # Every var below is also declared with an explicit ub= -- without one,
+    # Gurobi defaults an integer var's upper bound to +infinity and leaves
+    # the LP relaxation to discover the real bound from the constraints
+    # further down. Declaring the true bound up front gives Gurobi a
+    # tighter relaxation at the root node, before it's done any of that
+    # work. Every bound here is a structural fact (a group can never hold
+    # more than upper_number students, a type can never rack up more
+    # priority cost than its own headcount allows), not a guess -- so none
+    # of them can cut off a feasible solution.
+    y = m.addVars(itertools.product(T, G), vtype=gp.GRB.INTEGER, lb=0, ub=upper_number, name="y")
     w = m.addVars(G, vtype=gp.GRB.BINARY, name="w")
-    z = m.addVars(T, vtype=gp.GRB.INTEGER, lb=0, name="z")
-    z_max = m.addVar(vtype=gp.GRB.INTEGER, lb=0, name="z_max")
-    Q = m.addVars(itertools.product(G, A), vtype=gp.GRB.INTEGER, lb=0, name="Q")
+    z = m.addVars(T, vtype=gp.GRB.INTEGER, lb=0,
+                  ub={i: UNRANKED_PRIORITY * total_by_type[i] for i in T}, name="z")
+    z_max = m.addVar(vtype=gp.GRB.INTEGER, lb=0, ub=UNRANKED_PRIORITY * max_type_size, name="z_max")
+    Q = m.addVars(itertools.product(G, A), vtype=gp.GRB.INTEGER, lb=0, ub=upper_number, name="Q")
     P = m.addVars(itertools.product(G, A), vtype=gp.GRB.BINARY, name="P")
-    M = m.addVars(G, vtype=gp.GRB.INTEGER, lb=0, name="M")
-    M_max = m.addVar(vtype=gp.GRB.INTEGER, name="M_max")
+    M = m.addVars(G, vtype=gp.GRB.INTEGER, lb=0, ub=upper_number, name="M")
+    M_max = m.addVar(vtype=gp.GRB.INTEGER, lb=0, ub=upper_number, name="M_max")
     u = m.addVars(itertools.product(preferences, D), vtype=gp.GRB.BINARY, name="u")
     o = m.addVars(preferences, vtype=gp.GRB.BINARY, name="o")
 

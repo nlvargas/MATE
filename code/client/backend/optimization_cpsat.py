@@ -332,7 +332,15 @@ def _build_vars(model, mp):
     students_types = mp["students_types"]
     upper_number = mp["upper_number"]
     total_by_type = mp["total_by_type"]
-    total_students = mp["total_students"]
+    # z_max only ever needs to be >= the largest single z[i] (see the
+    # "z_max >= z[i]" constraint below), and z[i] itself can never exceed
+    # UNRANKED_PRIORITY * that type's own headcount -- so the largest type's
+    # headcount, not the whole roster's, is the tightest valid bound. Using
+    # total_students (the full roster size) here instead would still be
+    # correct, just needlessly loose whenever one type is much smaller than
+    # the roster as a whole -- which is the common case once students_types
+    # has done its job.
+    max_type_size = max(total_by_type.values())
     preferences = mp["preferences"]
 
     # y[i, g] is sparse: a (type, group) pair is only structurally possible
@@ -368,7 +376,7 @@ def _build_vars(model, mp):
         y = {(i, g): model.NewIntVar(0, upper_number, f"y_{i}_{g}") for i in T for g in G}
     w = {g: model.NewBoolVar(f"w_{g}") for g in G}
     z = {i: model.NewIntVar(0, UNRANKED_PRIORITY * total_by_type[i], f"z_{i}") for i in T}
-    z_max = model.NewIntVar(0, UNRANKED_PRIORITY * total_students, "z_max")
+    z_max = model.NewIntVar(0, UNRANKED_PRIORITY * max_type_size, "z_max")
     Q = {(g, a): model.NewIntVar(0, upper_number, f"Q_{g}_{a}") for g in G for a in A}
     P = {(g, a): model.NewBoolVar(f"P_{g}_{a}") for g in G for a in A}
     M = {g: model.NewIntVar(0, upper_number, f"M_{g}") for g in G}
