@@ -71,6 +71,30 @@ export default function Results({ runResult, attributes, goConfigure }) {
     );
   }
 
+  // Each assigned student's own `preferences` (rank -> topic name, e.g.
+  // {"1": "Databases", "2": "Networks"}) is the same per-student source
+  // views.py's _preference_outcome() reads (via
+  // model_common.compute_priority()) to build the on-screen "Preference
+  // outcomes" bars above -- it's just never pre-reduced to a rank for us,
+  // so this does the same lookup: walk the student's ranked choices in
+  // order and find the one whose topic matches the group they landed in.
+  // `groupName` is model_common.group_display_name()'s output -- the
+  // topic name, or "{topic} - {section}" when the roster uses modules --
+  // so a plain equality check isn't enough there; match on the topic
+  // prefix too.
+  function preferenceRankInGroup(student, groupName) {
+    const prefs = student && student.preferences;
+    if (!prefs) return "";
+    const ranked = Object.keys(prefs)
+      .map((k) => [parseInt(k, 10), prefs[k]])
+      .filter(([rank]) => Number.isFinite(rank))
+      .sort((a, b) => a[0] - b[0]);
+    const hit = ranked.find(([, topic]) => (
+      topic && (groupName === topic || groupName.startsWith(`${topic} - `))
+    ));
+    return hit ? hit[0] : "none";
+  }
+
   function downloadXlsx() {
     const wb = XLSX.utils.book_new();
     const header = ["Group", "Student ID", ...attributes, "Preference rank in group"];
@@ -81,7 +105,7 @@ export default function Results({ runResult, attributes, goConfigure }) {
           g.group_name,
           s.id,
           ...attributes.map((a) => (s.attributes ? s.attributes[a] : "")),
-          "",
+          preferenceRankInGroup(s, g.group_name),
         ]);
       });
     });
@@ -202,6 +226,10 @@ export default function Results({ runResult, attributes, goConfigure }) {
                   <div className="dist-topic">{f.label}</div>
                   <div className="dist-bar-line">
                     <div className="dist-track">
+                      {/* families[0] is safely the max, non-zero gain here: optimization_cpsat.py's
+                          sensitivity_report() sorts `families` by gain_points descending and only
+                          appends entries with gain_points > 0.5 before returning, so this can't
+                          divide by zero or by a non-max value under the current backend contract. */}
                       <div
                         className="dist-fill seg1"
                         style={{ width: `${Math.min(100, (f.gain_points / sensitivity.families[0].gain_points) * 100)}%` }}
