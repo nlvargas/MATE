@@ -2,7 +2,7 @@
 Tests for model_common.py: building the candidate group list and its
 indexes (preprocessing/create_subsets' replacement), the display-name and
 student-type-key helpers, per-type preference priority, and the
-(deliberately quirky) effective section-capacity computation.
+effective section-capacity computation.
 """
 import model_common as mc
 
@@ -160,9 +160,9 @@ def test_compute_priority_handles_multiword_topics(params_factory, student_type_
 # -------------------- get_min_capacity() --------------------
 
 def test_get_min_capacity_is_bounded_by_configured_capacity(params_factory, student_type_factory):
-    # 5 student TYPES available for mod1 (regardless of how many actual
-    # students each represents), configured capacity is only 3 -- capacity
-    # should come out as the smaller of the two.
+    # 5 types of 10 students each available for mod1 -- 50 students total
+    # -- but configured capacity is only 3, so capacity should come out as
+    # the smaller of the two.
     types = {
         f"T{i}": student_type_factory(f"T{i}", students=10, a={"mod1": 1})
         for i in range(5)
@@ -172,18 +172,20 @@ def test_get_min_capacity_is_bounded_by_configured_capacity(params_factory, stud
     assert mc.get_min_capacity(params) == {"mod1": 3}
 
 
-def test_get_min_capacity_counts_types_not_students(params_factory, student_type_factory):
-    # Documents a real, counterintuitive quirk (found while validating an
-    # earlier fix this session): get_min_capacity() counts how many
+def test_get_min_capacity_sums_student_headcount_not_types(params_factory, student_type_factory):
+    # Regression for a real bug (found while validating an earlier fix
+    # this session, then fixed): get_min_capacity() used to count how many
     # student TYPES marked themselves available for a module, not how many
-    # actual students -- so a handful of large types can produce a much
-    # smaller effective capacity than the true headcount would suggest.
-    # One type, 50 students, available for mod1: disponibilities["mod1"] is
-    # 1 (one type), not 50.
+    # actual students each type represents -- so one type of 50 identical
+    # students available for mod1 computed disponibilities["mod1"] as 1
+    # (one type), not 50, silently capping the section's effective
+    # capacity far below its true headcount. It now sums each available
+    # type's `students` count, matching preprocessing()'s own `disp`
+    # computation (which sums per-student availability directly).
     types = {"T0": student_type_factory("T0", students=50, a={"mod1": 1})}
     params = params_factory(students_types=types, modules=["mod1"], capacity={"mod1": 999})
 
-    assert mc.get_min_capacity(params) == {"mod1": 1}
+    assert mc.get_min_capacity(params) == {"mod1": 50}
 
 
 def test_get_min_capacity_ignores_types_not_available(params_factory, student_type_factory):

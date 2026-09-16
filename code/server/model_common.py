@@ -133,11 +133,36 @@ def student_type_key(attributes, preferences, disponibilities):
 
 
 def get_min_capacity(params):
+    """
+    Effective per-section capacity: the smaller of the configured "seats"
+    bound (params["capacity"][mod]) and how many students are actually
+    available for that section, so the solver never gets asked to seat
+    more students in a section than marked themselves available for it.
+
+    disponibilities[mod] sums students_types[s]["students"] (each type's
+    real headcount) over types available for mod -- the same headcount
+    preprocessing()'s own `disp` computes, just grouped by type instead of
+    iterated per student. This used to count len(types available) instead
+    -- the number of distinct student *types*, not the number of actual
+    students each one represents. That was a bug, not a deliberate
+    conservative bound: downstream, _add_constraints() in both
+    optimization.py and optimization_cpsat.py uses cap[d] to bound
+    `sum(y[i, g] for i in T for g in G_d[d])`, and y[i, g] is a headcount
+    (each type i's y-values across all groups sum to
+    students_types[i]["students"], enforced by its own constraint) -- so
+    comparing that headcount sum against a *type count* silently
+    undercounted true capacity whenever several students shared a type
+    (the normal case, since types are exactly students who share
+    attributes/preferences/availability), making an otherwise entirely
+    feasible roster spuriously infeasible. E.g. one type of 50 identical
+    students available for a section used to compute capacity 1 for it.
+    """
     modules = params["modules"]
     students_types = params["students_types"]
     disponibilities = {
-        mod: len(
-            [s for s in students_types if int(students_types[s]["a"][mod]) == 1]
+        mod: sum(
+            students_types[s]["students"]
+            for s in students_types if int(students_types[s]["a"][mod]) == 1
         ) for mod in modules
     }
     capacity = {
