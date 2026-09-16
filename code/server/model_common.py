@@ -203,3 +203,216 @@ def compute_priority(students_types, G_t, unranked_priority=UNRANKED_PRIORITY):
                 p[g] = i + 1
         priority[t["id"]] = p
     return priority
+
+def estimate_variable_count(params):
+    """
+    Exact count of the CP-SAT decision variables _build_model()
+    (code/client/backend/optimization_cpsat.py) would create for `params`,
+    computed directly from `params` and preprocessing() -- without ever
+    building the model itself, so it's cheap enough to run on every
+    /run_model/ request ahead of any solve.
+
+    This is what decides whether a request solves inline or gets handed
+    off to the cluster (see backend/views.py's run_model() and
+    project/settings.py's SYNC_SOLVE_MAX_VARIABLES) -- replacing the old
+    raw-student-count threshold. Student count alone was a poor proxy for
+    how hard a roster actually is to solve: the same headcount can produce
+    wildly different variable counts (and solve times) depending on how
+    many distinct student types it collapses into and how many
+    topics/sections are configured. See docs/ARCHITECTURE.md's note on
+    this threshold for the benchmark this number is based on.
+
+    Mirrors _build_vars() family by family: y is sparse the same way it is
+    there (a (type, group) pair only exists when that type marked itself
+    available for the group's section), Q/P/M/M_max/u/o are dense over
+    their full index sets, exactly as _build_vars() declares them. Both
+    this function and frontend/src/estimateModelSize.js (a client-side
+    approximation used for the live "~N variables" display on the
+    Configure & run screen, before a request is ever sent) implement the
+    same formula -- this one is the exact, authoritative version the
+    backend actually acts on.
+    """
+    G, G_t, G_d, G_td = preprocessing(params)
+    students_types = params["students_types"]
+    T = list(students_types.keys())
+    modules = params["modules"]
+    A = params["A"]
+    preferences = list(params["preferences"].keys())
+    D = list(modules)
+
+    if modules:
+        group_section = {g: d for d, gs in G_d.items() for g in gs}
+        y_count = sum(
+            1 for i in T for g in G
+            if int(students_types[i]["a"][group_section[g]]) == 1
+        )
+    else:
+        y_count = len(T) * len(G)
+
+    w_count = len(G)
+    z_count = len(T) + 1  # z[i] per type, plus z_max
+    q_count = len(G) * len(A)  # Q[g, attr] -- dense, definitional
+    p_count = len(G) * len(A)  # P[g, attr] -- dense, same index set as Q
+    m_count = len(G) + 1  # M[g] per group, plus M_max
+    u_count = len(preferences) * len(D)  # only ever used when modules is set
+    o_count = len(preferences)
+
+    return y_count + w_count + z_count + q_count + p_count + m_count + u_count + o_count
+
+
+def validate_feasibility(params):
+    """
+    Sound, cheap-to-check necessary conditions for `params` to be
+    feasible at all, computed directly from the request -- without
+    building or solving a model. Every check here is a *sufficient*
+    condition for guaranteed infeasibility, traced directly from
+    _add_constraints() (code/client/backend/optimization_cpsat.py): if a
+    check fires, no assignment of students to groups can possibly satisfy
+    every constraint, regardless of solver, time budget, or hardware --
+    so backend/views.py's run_model() returns these immediately, before
+    attempting a solve (or queuing a cluster job) that's mathematically
+    guaranteed to fail.
+
+    This deliberately does NOT try to catch every possible infeasibility --
+    only the ones a closed-form check can prove soundly and cheaply. Two
+    known infeasibility mechanisms are left out on purpose:
+      - "Solo" attribute bounds (params["attributes"][a][v]["solo"]): the
+        model gives each group a free P[g, attr] opt-out variable, so a
+        group can duck a solo bound entirely -- there's no total-headcount
+        inequality that has to hold the way there is for a non-solo bound.
+      - The `used_preferences` cap coupled with `sameDay`: `u[p, d] <= o[p]`
+        only binds when sameDay is on and sections are configured, and
+        working out exactly when that combination forces infeasibility
+        needs more care than a quick closed-form check can give
+        confidently.
+    Both are documented here (and in docs/ARCHITECTURE.md's Restrictions
+    subsection) so a future pass can revisit them deliberately, instead of
+    a silent gap nobody wrote down.
+
+    Returns a list of human-readable messages, empty if nothing obviously
+    infeasible was found. An empty list is not a feasibility guarantee --
+    the solve itself is still the only way to know for sure.
+    """
+    issues = []
+    students_types = params["students_types"]
+    students_types_attr = params.get("students_types_attr", {})
+    modules = params["modules"]
+    groups_number = params["groups_number"]
+    lower_number = params["lower_number"]
+    upper_number = params["upper_number"]
+    attr_bounds = params["attributes"]
+    preferences_bounds = params["preferences"]
+    used_preferences = params.get("usedPreferences", len(preferences_bounds))
+    total_students = sum(st["students"] for st in students_types.values())
+
+    # 1. Section availability. y[i, g] is only created for a (type, group)
+    # pair when that type marked itself available for the group's section
+    # (see _build_vars()'s sparse construction) -- a type unavailable for
+    # EVERY configured section gets no y[i, g] variables at all, so its
+    # headcount-conservation constraint (sum(y[i, g] for g) == headcount)
+    # sums an empty set against a positive headcount: an unsatisfiable
+    # 0 == headcount.
+    if modules:
+        for st in students_types.values():
+            if st["students"] <= 0:
+                continue
+            if not any(int(st["a"].get(d, 0)) == 1 for d in modules):
+                issues.append(
+                    f"{st['students']} student(s) aren't available for any "
+                    "configured section, so they can't be placed in any "
+                    "group at all."
+                )
+
+    # 2. Target group count vs. candidate groups. "Target group count"
+    # requires sum(w[g] for g in G) == groups_number, and w[g] is one
+    # boolean per candidate group preprocessing() builds -- asking for more
+    # groups than candidate slots exist makes that sum unreachable.
+    G, G_t, G_d, G_td = preprocessing(params)
+    if groups_number > len(G):
+        issues.append(
+            f"Requested {groups_number} groups, but only {len(G)} candidate "
+            "group slot(s) can be built from the configured topics"
+            + (" and sections" if modules else "")
+            + " -- raise the topics'/sections' group-count bounds, or "
+            "lower the requested group count."
+        )
+
+    # 3. Group-size band vs. total roster. Every active group's headcount
+    # must sit in [lower_number, upper_number], and exactly groups_number
+    # groups are active -- so the whole roster has to fit inside
+    # [groups_number * lower_number, groups_number * upper_number].
+    band_lo = groups_number * lower_number
+    band_hi = groups_number * upper_number
+    if total_students < band_lo or total_students > band_hi:
+        issues.append(
+            f"{total_students} student(s) can't be split into "
+            f"{groups_number} group(s) of between {lower_number} and "
+            f"{upper_number} students each (that band covers {band_lo}-"
+            f"{band_hi} students total)."
+        )
+
+    # 4. Attribute balance (non-solo bounds only -- see docstring above for
+    # why "solo" bounds are skipped). A configured min/max on how many
+    # students with a given attribute value land in an active group, added
+    # for every one of the groups_number active groups, forces the roster's
+    # *total* headcount with that value into
+    # [groups_number * min_bound, groups_number * max_bound] too.
+    for attr, values in (attr_bounds or {}).items():
+        for value, bound in values.items():
+            if bound.get("solo"):
+                continue
+            attr_key = f"{attr}:{value}"
+            min_bound = int(bound["min"])
+            max_bound = int(bound["max"])
+            total_with_value = sum(
+                st["students"] for tid, st in students_types.items()
+                if students_types_attr.get(tid, {}).get(attr_key)
+            )
+            lo = groups_number * min_bound
+            hi = groups_number * max_bound
+            if total_with_value < lo or total_with_value > hi:
+                issues.append(
+                    f'{total_with_value} student(s) have "{attr}: {value}", '
+                    f"but {groups_number} group(s) each requiring between "
+                    f"{min_bound} and {max_bound} of them need a total "
+                    f"between {lo} and {hi}."
+                )
+
+    # 5. Total section capacity vs. roster size. Every student ends up in
+    # exactly one group, in exactly one section; section capacity is
+    # enforced per section, so the sum of every section's effective
+    # capacity (get_min_capacity(), already clamped to who's actually
+    # available for it) has to be able to seat the whole roster.
+    if modules:
+        cap = get_min_capacity(params)
+        total_capacity = sum(cap.values())
+        if total_capacity < total_students:
+            issues.append(
+                f"Configured section capacity totals {total_capacity} "
+                f"seat(s) across every section, short of the "
+                f"{total_students} student(s) to place."
+            )
+
+    # 6. Topic coverage vs. target group count. G_t partitions the
+    # candidate groups by topic, and "target group count" pins
+    # sum(w[g] for g in G) == groups_number exactly -- so summing each
+    # topic's own min/max bound over every topic has to bracket
+    # groups_number too. The minimum only applies when every configured
+    # topic is required to be used (used_preferences == every topic) --
+    # matching the same condition _add_constraints() checks.
+    if preferences_bounds:
+        max_sum = sum(int(b["max"]) for b in preferences_bounds.values())
+        if max_sum < groups_number:
+            issues.append(
+                f"Configured topics can host at most {max_sum} group(s) "
+                f"combined, short of the {groups_number} requested."
+            )
+        if used_preferences == len(preferences_bounds):
+            min_sum = sum(int(b["min"]) for b in preferences_bounds.values())
+            if min_sum > groups_number:
+                issues.append(
+                    f"Configured topics require at least {min_sum} group(s) "
+                    f"combined, more than the {groups_number} requested."
+                )
+
+    return issues

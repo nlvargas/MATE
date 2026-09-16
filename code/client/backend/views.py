@@ -17,6 +17,7 @@ from .utils import (
     id_generator,
     student_type_key,
 )
+from model_common import estimate_variable_count, validate_feasibility
 from io import BytesIO
 from openpyxl import load_workbook
 
@@ -104,10 +105,30 @@ def run_model(request):
     params = json.loads(request.body.decode('utf-8'))
     data = create_parms(params)
 
-    total_students = len(data["students"])
     students_preferences_number = int(data["students_preferences_number"])
 
-    if total_students <= settings.SYNC_SOLVE_MAX_STUDENTS:
+    # Pre-flight, closed-form infeasibility checks (model_common.
+    # validate_feasibility()) -- cheap, sound, and catch a request that's
+    # mathematically guaranteed to fail before spending a synchronous solve
+    # (or a cluster job) on it. Reported the same shape a real infeasible
+    # solve reports its "causes" in (see the `not sol["factible"]` branch
+    # below), so the Results screen doesn't need a separate code path.
+    feasibility_issues = validate_feasibility(data)
+    if feasibility_issues:
+        return Response({
+            "queued": False,
+            "factible": False,
+            "status": "INVALID",
+            "causes": feasibility_issues,
+        }, status=status.HTTP_200_OK)
+
+    # Estimated decision-variable count (model_common.
+    # estimate_variable_count()), not raw student count, decides whether
+    # this solves inline or goes to the cluster -- see
+    # SYNC_SOLVE_MAX_VARIABLES's comment in project/settings.py for why.
+    estimated_variables = estimate_variable_count(data)
+
+    if estimated_variables <= settings.SYNC_SOLVE_MAX_VARIABLES:
         # Small problem: solve it inline and hand the result straight back.
         # The person can choose their own time budget on the Configure & run
         # screen (CreateGroups.js's slider, sent here as maxSolveSeconds,
@@ -202,7 +223,7 @@ def sensitivity(request):
     function's docstring -- if it ran on every request instead of only
     when asked for).
 
-    Sync-only, same SYNC_SOLVE_MAX_STUDENTS cap run_model()'s inline path
+    Sync-only, same SYNC_SOLVE_MAX_VARIABLES cap run_model()'s inline path
     uses: a roster too large to solve inline is too large to run this
     analysis on top of that solve, too. CP-SAT only for now -- the Gurobi
     backend doesn't have sensitivity_report() yet, same as it doesn't have
@@ -210,9 +231,9 @@ def sensitivity(request):
     """
     params = json.loads(request.body.decode('utf-8'))
     data = create_parms(params)
-    total_students = len(data["students"])
+    estimated_variables = estimate_variable_count(data)
 
-    if total_students > settings.SYNC_SOLVE_MAX_STUDENTS:
+    if estimated_variables > settings.SYNC_SOLVE_MAX_VARIABLES:
         return Response({
             "error": "too_large",
             "message": "Sensitivity analysis is only available for rosters solved inline.",

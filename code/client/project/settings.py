@@ -39,29 +39,36 @@ if SERVER_DIR not in sys.path:
 # wherever this process runs.
 OPTIMIZER_SOLVER = os.environ.get("MATE_SOLVER", "cpsat")
 
-# Problems at or below this many students are solved synchronously inside the
-# web request and the result is shown in the UI immediately. Bigger ones are
-# handed off to the cluster as before, with results emailed later once done.
-# SYNC_SOLVE_TMAX_SECONDS bounds how long the synchronous solve is allowed to
-# run -- keep it well under your web server's request timeout (e.g. API
-# Gateway / Lambda hard-caps a request at 29s).
+# Problems at or below this many *estimated decision variables* (see
+# model_common.estimate_variable_count()) are solved synchronously inside
+# the web request and the result is shown in the UI immediately. Bigger
+# ones are handed off to the cluster as before, with results emailed later
+# once done. SYNC_SOLVE_TMAX_SECONDS bounds how long the synchronous solve
+# is allowed to run -- keep it well under your web server's request
+# timeout (e.g. API Gateway / Lambda hard-caps a request at 29s).
 #
 # frontend/src/containers/CreateGroups.js shows a "this will run sync/async"
 # indicator on the Configure & run screen based on this same number -- it
 # reads it from window.__MATE_CONFIG__ (injected into index.html by
 # frontend/views.py's index(), which passes this exact setting as template
 # context) rather than hardcoding its own copy, so there's nothing to keep
-# in sync by hand here: changing SYNC_SOLVE_MAX_STUDENTS (or
-# MATE_SYNC_MAX_STUDENTS) changes what the UI shows too, automatically, on
+# in sync by hand here: changing SYNC_SOLVE_MAX_VARIABLES (or
+# MATE_SYNC_MAX_VARIABLES) changes what the UI shows too, automatically, on
 # the next page load -- no frontend rebuild required.
-# 100 is a measured, not a guessed, number -- see docs/ARCHITECTURE.md's
-# note on this threshold: on hardware comparable to (or faster than) this
-# Lambda function's default memory allocation, CP-SAT solves stopped
-# reliably finishing (to OPTIMAL) inside SYNC_SOLVE_TMAX_SECONDS somewhere
-# between 100 and 150 students, for a moderately complex roster (multiple
-# attributes/sections/topics). Bump this only after re-benchmarking against
-# your actual configured Lambda memory/CPU and roster complexity.
-SYNC_SOLVE_MAX_STUDENTS = int(os.environ.get("MATE_SYNC_MAX_STUDENTS", 100))
+#
+# This used to be a raw student-count cap (SYNC_SOLVE_MAX_STUDENTS,
+# default 100) -- replaced because student count alone is a poor proxy for
+# how hard a roster actually is to solve: the same headcount can collapse
+# into very different numbers of distinct student types, topics, and
+# sections, which is what actually drives the model's size and solve time.
+# 4000 is a measured, not a guessed, number -- see docs/ARCHITECTURE.md's
+# note on this threshold: a 14-point benchmark correlating CP-SAT's own
+# reported variable count against real solve time (production solver
+# settings, greedy hint applied) found solves reliably finishing well
+# inside a 30-60s budget up to a few thousand variables, with solve time
+# climbing sharply beyond that. Bump this only after re-benchmarking
+# against your actual configured Lambda memory/CPU and roster complexity.
+SYNC_SOLVE_MAX_VARIABLES = int(os.environ.get("MATE_SYNC_MAX_VARIABLES", 4000))
 SYNC_SOLVE_TMAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_SECONDS", 20))
 
 # The person running a sync solve can now choose their own time budget (see

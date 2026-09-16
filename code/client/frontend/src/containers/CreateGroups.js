@@ -6,6 +6,7 @@ import DualSlider from '../components/DualSlider';
 import SingleSlider from '../components/SingleSlider';
 import InfoTip from '../components/InfoTip';
 import Spinner from '../components/Spinner';
+import { estimateModelSize } from '../estimateModelSize';
 
 export default function CreateGroups(props) {
   const { step, setStep, attributes, preferences, modules,
@@ -22,7 +23,7 @@ export default function CreateGroups(props) {
   const [email, setEmail] = useState("");
   // Bounds and starting value for the max-solve-time slider below, read
   // from window.__MATE_CONFIG__ (see frontend/views.py's index()) instead
-  // of hardcoding a copy here, for the same reason syncMaxStudents further
+  // of hardcoding a copy here, for the same reason syncMaxVariables further
   // down is read that way: this can never drift from the clamp
   // backend/views.py's run_model() actually enforces server-side.
   const syncTmaxMin = window.__MATE_CONFIG__?.syncTmaxMinSeconds ?? 5;
@@ -222,6 +223,20 @@ export default function CreateGroups(props) {
     return found;
   }, [bounds, prefsBounds, capacity, groupsNumber, minStudents, maxStudents, totalStudents, preferences, modules, students, t, tf]);
 
+  // Rough pre-solve size estimate -- how many student types the roster
+  // collapses into, how many candidate groups get built, and roughly how
+  // many decision variables the model ends up with (see
+  // estimateModelSize.js and docs/ARCHITECTURE.md's Preprocessing/
+  // Restrictions sections). This is what the sync/async routing indicator
+  // (execPath, below) is based on -- an approximation of the exact count
+  // the backend computes for real (model_common.estimate_variable_count()),
+  // close enough to show the right indicator before a request is ever
+  // sent; the backend's own count is what actually decides which path a
+  // request takes.
+  const modelSize = useMemo(() => estimateModelSize({
+    students, modules, preferences, prefsBounds, options, groupsNumber, upperNumber: maxStudents,
+  }), [students, modules, preferences, prefsBounds, options, groupsNumber, maxStudents]);
+
   function runModelRequest() {
     // Plain Promise chain, not async/await: the babel config here has no
     // regenerator-runtime polyfill, so a compiled async function throws
@@ -289,18 +304,21 @@ export default function CreateGroups(props) {
       .finally(() => setRunning(false));
   }
 
-  // Small problems solve in-request; larger rosters go to the cluster queue.
-  // This is purely a UI indicator (see the "Sync"/"Async" pills below) --
-  // the backend decides for itself which path to actually take, based on
-  // its own SYNC_SOLVE_MAX_STUDENTS setting (project/settings.py, default
-  // 300, overridable via MATE_SYNC_MAX_STUDENTS). Read from
-  // window.__MATE_CONFIG__ (injected server-side in index.html -- see
-  // frontend/views.py's index()) instead of a second hardcoded copy of
-  // that number, so this can never silently drift from what the backend
-  // will actually do; the fallback below only matters if this page were
-  // ever served without going through that view.
-  const syncMaxStudents = window.__MATE_CONFIG__?.syncMaxStudents ?? 300;
-  const execPath = totalStudents > syncMaxStudents ? "async" : "sync";
+  // Small problems solve in-request; larger ones go to the cluster queue.
+  // This is a UI indicator (see the "Sync"/"Async" pills below), based on
+  // modelSize's estimated variable count -- the same basis the backend
+  // itself now routes on (see SYNC_SOLVE_MAX_VARIABLES's comment in
+  // project/settings.py). It can occasionally disagree with what the
+  // backend actually does, since modelSize is an approximation computed
+  // without a round-trip; the backend's own exact count
+  // (model_common.estimate_variable_count()) is what actually decides.
+  // syncMaxVariables is read from window.__MATE_CONFIG__ (injected
+  // server-side in index.html -- see frontend/views.py's index()) instead
+  // of a second hardcoded copy of that number, so this can never silently
+  // drift from what the backend will actually do; the fallback below only
+  // matters if this page were ever served without going through that view.
+  const syncMaxVariables = window.__MATE_CONFIG__?.syncMaxVariables ?? 4000;
+  const execPath = modelSize.variablesEstimate > syncMaxVariables ? "async" : "sync";
 
   return (
     <div className="main-inner">
@@ -445,6 +463,10 @@ export default function CreateGroups(props) {
           <div className="stat-line"><span className="stat-label">{t("statAttrs")}</span><span className="stat-val">{attributes.length}</span></div>
           <div className="stat-line"><span className="stat-label">{t("statTopics")}</span><span className="stat-val">{preferences.length}</span></div>
           <div className="stat-line"><span className="stat-label">{t("statSections")}</span><span className="stat-val">{modules.length}</span></div>
+          <div className="stat-line">
+            <span className="stat-label">{t("statVariables")}<InfoTip text={t("statVariablesTooltip")} /></span>
+            <span className="stat-val">~{modelSize.variablesEstimate.toLocaleString()}</span>
+          </div>
           <div style={{ marginTop: 12 }}>
             {issues.length === 0 ? (
               <span className="badge badge-good"><span className="badge-dot" />{t("feasibleBadge")}</span>

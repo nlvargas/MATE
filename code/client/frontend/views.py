@@ -3,7 +3,7 @@ from django.shortcuts import render
 
 
 def index(request, param=None):
-    # SYNC_SOLVE_MAX_STUDENTS is handed to the frontend here (as
+    # SYNC_SOLVE_MAX_VARIABLES is handed to the frontend here (as
     # window.__MATE_CONFIG__ in index.html) instead of being duplicated as
     # a second hardcoded constant in CreateGroups.js -- see the comment on
     # that setting in project/settings.py. This is the one and only place
@@ -17,7 +17,7 @@ def index(request, param=None):
     # the clamp backend/views.py's run_model() actually enforces -- see
     # SYNC_SOLVE_TMAX_SECONDS/MIN/MAX's comments in project/settings.py.
     context = {
-        "sync_max_students": settings.SYNC_SOLVE_MAX_STUDENTS,
+        "sync_max_variables": settings.SYNC_SOLVE_MAX_VARIABLES,
         "sync_tmax_default_seconds": settings.SYNC_SOLVE_TMAX_SECONDS,
         "sync_tmax_min_seconds": settings.SYNC_SOLVE_TMAX_MIN_SECONDS,
         "sync_tmax_max_seconds": settings.SYNC_SOLVE_TMAX_MAX_SECONDS,

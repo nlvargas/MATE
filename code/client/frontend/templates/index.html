@@ -17,12 +17,12 @@
   <!-- Server-side config the frontend needs but can't hardcode without
        risking drift from the backend's own settings (see
        frontend/views.py's index() and project/settings.py's
-       SYNC_SOLVE_MAX_STUDENTS comment) -- read via window.__MATE_CONFIG__,
+       SYNC_SOLVE_MAX_VARIABLES comment) -- read via window.__MATE_CONFIG__,
        not baked into main.js, so it stays correct even if this value is
        changed via an env var without a frontend rebuild. -->
   <script>
     window.__MATE_CONFIG__ = {
-      syncMaxStudents: {{ sync_max_students }},
+      syncMaxVariables: {{ sync_max_variables }},
       syncTmaxDefaultSeconds: {{ sync_tmax_default_seconds }},
       syncTmaxMinSeconds: {{ sync_tmax_min_seconds }},
       syncTmaxMaxSeconds: {{ sync_tmax_max_seconds }}
