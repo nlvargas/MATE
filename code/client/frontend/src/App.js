@@ -41,6 +41,15 @@ function WizardForm() {
       .catch(() => {});
   }, []);
 
+  // Keeps the document's declared language in sync with the EN/ES toggle --
+  // templates/index.html ships a static lang="en" for the pre-render/SSR
+  // case, and this is what keeps it accurate once the person switches
+  // languages (screen readers and browser translate/spellcheck both read
+  // this attribute, not the visible text).
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
   const uploadUnlocked = true; // Setup has no hard requirements (all three sections are optional yes/no).
   const configureUnlocked = students.length > 0;
   const resultsUnlocked = runResult !== null;

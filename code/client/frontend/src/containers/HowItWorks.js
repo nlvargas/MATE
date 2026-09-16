@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useI18n } from '../i18n';
 
 // Sets/variables/constraints content, ported verbatim (including the actual
@@ -88,12 +88,46 @@ export default function HowItWorks({ onClose }) {
   const m = MATH[lang] || MATH.en;
   const objFormula = OBJ_FORMULA[lang] || OBJ_FORMULA.en;
 
+  const closeButtonRef = useRef(null);
+  // Whatever had focus right before this modal mounted -- in practice
+  // always the "How MATE works?" rail button that opens it (App.js) --
+  // captured once on mount so focus can return there on close, without
+  // this component needing App.js to pass a ref down for it.
+  const triggerRef = useRef(typeof document !== 'undefined' ? document.activeElement : null);
+
+  useEffect(() => {
+    // Move focus into the dialog on open, and close on Escape -- this
+    // modal previously only closed via the × button or a backdrop click,
+    // with no keyboard/focus handling at all despite declaring
+    // role="dialog" aria-modal="true" below.
+    if (closeButtonRef.current) closeButtonRef.current.focus();
+
+    // Read the ref here, not inside the cleanup below -- by the time
+    // cleanup runs the component is unmounting, and a ref read there
+    // isn't guaranteed to still hold what it held during this render.
+    const trigger = triggerRef.current;
+
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      // Return focus to the trigger on close, rather than leaving it on
+      // (or inside) an element that just disappeared from the page.
+      if (trigger && typeof trigger.focus === 'function') {
+        trigger.focus();
+      }
+    };
+  }, [onClose]);
+
   return (
     <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-panel" role="dialog" aria-modal="true">
         <div className="modal-head">
           <h2>{t("howTitle")}</h2>
-          <button className="modal-close" onClick={onClose}>&times;</button>
+          <button ref={closeButtonRef} className="modal-close" onClick={onClose} aria-label={t("closeLabel")}>&times;</button>
         </div>
         <div className="modal-body">
           <p>{t("howIntro")}</p>

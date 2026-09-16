@@ -6,7 +6,7 @@ import React from 'react';
  * just one <input type="range"> instead of two, so the shared .dslider*
  * rules in theme.css already apply as-is).
  */
-export default function SingleSlider({ min, max, step = 1, value, onChange, suffix = "", formatValue }) {
+export default function SingleSlider({ min, max, step = 1, value, onChange, suffix = "", formatValue, ariaLabel }) {
   const range = Math.max(1, max - min);
   const pct = (v) => ((v - min) / range) * 100;
   const fmt = formatValue || ((v) => `${v}${suffix}`);
@@ -28,6 +28,7 @@ export default function SingleSlider({ min, max, step = 1, value, onChange, suff
         step={step}
         value={value}
         onChange={handleChange}
+        aria-label={ariaLabel}
       />
       <div className="dslider-label" style={{ left: `${pct(value)}%` }}>
         {fmt(value)}

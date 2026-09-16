@@ -1,4 +1,5 @@
 import React from 'react';
+import { useI18n } from '../i18n';
 
 /**
  * A dual-thumb range slider: two overlapping native <input type="range">
@@ -9,11 +10,23 @@ import React from 'react';
  * centers the native track inside it -- no manual pixel-offset hacks that
  * drift between browsers. Class names (.dslider*) match the validated
  * mate-redesign mockup 1:1.
+ *
+ * `label` is what a screen reader announces for each thumb ("Minimum
+ * <label>" / "Maximum <label>") -- without it, both native range inputs
+ * announce as bare, indistinguishable "slider"s, since this component
+ * carries no visible text label of its own (the two callers-provided pill
+ * texts, e.g. an attribute value or topic name, sit next to the slider in
+ * the DOM but aren't programmatically associated with these inputs).
+ * Optional so existing call sites don't break, but every call site in this
+ * app passes one.
  */
-export default function DualSlider({ min, max, step = 1, lo, hi, onChangeLo, onChangeHi, suffix = "", formatValue }) {
+export default function DualSlider({ min, max, step = 1, lo, hi, onChangeLo, onChangeHi, suffix = "", formatValue, label }) {
+  const { t } = useI18n();
   const range = Math.max(1, max - min);
   const pct = (v) => ((v - min) / range) * 100;
   const fmt = formatValue || ((v) => `${v}${suffix}`);
+  const loLabel = label ? `${t("sliderMinLabel")} ${label}` : undefined;
+  const hiLabel = label ? `${t("sliderMaxLabel")} ${label}` : undefined;
 
   function handleLo(e) {
     const v = Math.min(Number(e.target.value), hi - step >= min ? hi - step : hi);
@@ -41,6 +54,7 @@ export default function DualSlider({ min, max, step = 1, lo, hi, onChangeLo, onC
         step={step}
         value={lo}
         onChange={handleLo}
+        aria-label={loLabel}
       />
       <input
         className="dslider-input"
@@ -50,6 +64,7 @@ export default function DualSlider({ min, max, step = 1, lo, hi, onChangeLo, onC
         step={step}
         value={hi}
         onChange={handleHi}
+        aria-label={hiLabel}
       />
       <div className="dslider-label" style={{ left: `${pct(lo)}%` }}>
         {fmt(lo)}
