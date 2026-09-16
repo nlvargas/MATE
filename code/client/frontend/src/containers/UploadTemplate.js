@@ -63,7 +63,9 @@ export default function UploadTemplate(props) {
     return matrix;
   }, [preferences, preferencesNumber, students]);
 
-  const maxSectionCount = sectionCounts ? Math.max(1, ...Object.values(sectionCounts)) : 1;
+  const maxPrefCount = prefMatrix
+    ? Math.max(1, ...Object.values(prefMatrix).flatMap((counts) => counts))
+    : 1;
 
   return (
     <div className="main-inner single">
@@ -134,7 +136,7 @@ export default function UploadTemplate(props) {
                     {counts.map((c, i) => (
                       <div className="dist-bar-line" key={i}>
                         <div className="dist-track">
-                          <div className={`dist-fill ${i === 0 ? "seg1" : "seg2"}`} style={{ width: `${(c / maxSectionCount) * 100}%` }} />
+                          <div className={`dist-fill ${i === 0 ? "seg1" : "seg2"}`} style={{ width: `${(c / maxPrefCount) * 100}%` }} />
                         </div>
                         <span className="dist-val">{tf("choiceN", { n: i + 1 })} · {c}</span>
                       </div>
