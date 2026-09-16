@@ -109,6 +109,31 @@ export default function CreateTemplate(props) {
     saveAs(new Blob([s2ab(wbout)], { type: "application/octet-stream" }), 'template.xlsx');
   }
 
+  // Toggling a "do you have X to configure?" switch off must clear the
+  // underlying data too, not just hide the JSX -- otherwise generateTemplate()
+  // and next() (which read attributes/modules/preferences/preferencesNumber
+  // directly) keep carrying stale values the collapsed UI implies are gone.
+  // Turning a toggle back on starts from a clean slate rather than restoring
+  // whatever was there before, so there's no "phantom" data reappearing.
+  function handleHaveAttributesChange(checked) {
+    setHaveAttributes(checked);
+    if (!checked) setAttributes([]);
+  }
+
+  function handleHaveModulesChange(checked) {
+    setHaveModules(checked);
+    if (!checked) setModules([]);
+  }
+
+  function handleHavePreferencesChange(checked) {
+    setHavePreferences(checked);
+    if (!checked) {
+      setPreferences([]);
+      setPreferencesNumber(0);
+      setPreferencesNumberOptions([...Array(1).keys()]);
+    }
+  }
+
   function next() {
     setCookie('attributes', attributes, { path: '/' });
     setCookie('modules', modules, { path: '/' });
@@ -152,7 +177,7 @@ export default function CreateTemplate(props) {
           <h3>{t("attributesTitle")}</h3>
           <div className="toggle-row" style={{ gap: 8 }}>
             <span className="t-sub" style={{ maxWidth: 220, textAlign: "right" }}>{t("attributesQuestion")}</span>
-            <Switch checked={haveAttributes} onChange={setHaveAttributes} />
+            <Switch checked={haveAttributes} onChange={handleHaveAttributesChange} />
           </div>
         </div>
         <p className="card-sub">{t("attributesHelp")}</p>
@@ -173,7 +198,7 @@ export default function CreateTemplate(props) {
           <h3>{t("sectionsTitle")}</h3>
           <div className="toggle-row" style={{ gap: 8 }}>
             <span className="t-sub" style={{ maxWidth: 220, textAlign: "right" }}>{t("sectionsQuestion")}</span>
-            <Switch checked={haveModules} onChange={setHaveModules} />
+            <Switch checked={haveModules} onChange={handleHaveModulesChange} />
           </div>
         </div>
         <p className="card-sub">{t("sectionsHelp")}</p>
@@ -194,7 +219,7 @@ export default function CreateTemplate(props) {
           <h3>{t("topicsTitle")}</h3>
           <div className="toggle-row" style={{ gap: 8 }}>
             <span className="t-sub" style={{ maxWidth: 220, textAlign: "right" }}>{t("topicsQuestion")}</span>
-            <Switch checked={havePreferences} onChange={setHavePreferences} />
+            <Switch checked={havePreferences} onChange={handleHavePreferencesChange} />
           </div>
         </div>
         <p className="card-sub">{t("topicsHelp")}</p>
