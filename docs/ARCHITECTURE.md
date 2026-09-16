@@ -403,37 +403,29 @@ students -- a small attribute/topic space collapses a large synthetic
 roster into few types and reports spurious infeasibility that's an
 artifact of the test data, not a real scaling limit.)
 
-**The 20s cap used to only bound the CP-SAT search, not the whole solve --
-that was a real bug.** A live UI test with a 50-student roster (using
-`CreateGroups.js`'s own default of 4 groups, not the 8-group shape the
-benchmark above used) came back `OPTIMAL` in a genuinely useful sense, but
-took **29.1 seconds wall-clock** -- at or past API Gateway's 29s hard
-limit -- even though the CP-SAT search itself never exceeded its 20s
-budget. The missing time was model-building and greedy-hint computation in
-`optimization_cpsat.run_model()`, which ran *before* the timed search and
-weren't bounded by anything. Fixed by making `params["tmax"]` a *total*
-wall-clock budget: `run_model()` now measures how long build+hint actually
-took and gives the solver whatever's left (floored at
-`_MIN_SEARCH_SECONDS = 2.0` so a slow build never leaves it with zero
-time), instead of always handing it the full budget on top of an unbounded
-setup cost. Re-verified with `backend/tests/sync_solve_benchmark.py`
-(sweeps roster size through the real `upload`/`run_model` views via
-`RequestFactory`, using the frontend's actual default 4-group shape): wall
-time now tracks the 20s budget closely (e.g. ~20.0-20.1s at the points that
-hit the cap) instead of running past it.
+**`params["tmax"]` is a total wall-clock budget, not just a cap on the
+CP-SAT search.** Model-building and greedy-hint computation in
+`optimization_cpsat.run_model()` run before the timed search starts, and
+that setup cost grows with roster size just like the search itself does --
+so `run_model()` measures how long build+hint actually took and gives the
+solver whatever's left of the configured budget, floored at
+`_MIN_SEARCH_SECONDS = 2.0` so a slow build never leaves the solver with
+zero time. `backend/tests/sync_solve_benchmark.py` sweeps roster size
+through the real `upload`/`run_model` views via `RequestFactory`, using the
+frontend's default 4-group shape, and confirms wall time tracks the
+configured budget closely (e.g. ~20.0-20.1s at the points that hit the cap)
+rather than running past it.
 
-**A second, separate finding from that same sweep**: `CreateGroups.js`'s
-default of always capping `groupsNumber` at 4 (`Math.min(4, totalStudents)`,
-regardless of how large the roster is) means the default group shape gets
-fewer, bigger groups as a roster grows, which both solves slower and, at a
-non-trivial rate in this sweep (roughly a third of random trials at
-N=40-75), comes back genuinely `INFEASIBLE` rather than merely slow --
-confirmed not a benchmark artifact by re-running the same N with several
-seeds each. This is a frontend default-tuning question, independent of
-`SYNC_SOLVE_MAX_STUDENTS`: a user who leaves the default 4 groups on a
+**A known limitation, independent of `SYNC_SOLVE_MAX_STUDENTS`**:
+`CreateGroups.js` defaults `groupsNumber` to `Math.min(4, totalStudents)`
+regardless of roster size, so the default group shape gets fewer, bigger
+groups as a roster grows -- which both solves slower and, at a non-trivial
+rate for larger rosters (roughly a third of random trials at N=40-75 in
+`sync_solve_benchmark.py`'s sweep), comes back genuinely `INFEASIBLE`
+rather than merely slow. A user who sets a group count suited to their
+roster size doesn't hit this; one who leaves the default 4 groups on a
 large roster may get infeasible or capped-non-optimal results well before
-100 students, while one who sets a group count suited to their roster size
-doesn't hit this. Worth revisiting `CreateGroups.js`'s default formula
+100 students. Worth revisiting `CreateGroups.js`'s default formula
 separately -- not addressed here.
 
 **Who can reach the cluster path**: the sync path above is open to anyone
@@ -483,44 +475,42 @@ button on the Results screen -- deliberately never inline with
 `run_model()`, since running O(number of families) extra resolves on every
 request would reopen the exact wall-clock-budget problem documented above.
 
-**A tolerance-mismatch bug, caught before shipping.** The first version
-compared each family trial against a baseline solved via `run_model()`'s
-own production-tuned `_solve_full()` (~20s budget, 0.01 relative gap).
-Every single family, including ones with no plausible connection to the
-roster's actual preferences, reported the exact same suspiciously-round
-gain. Root cause: `UNRANKED_PRIORITY` (1000) and `BALANCE_CONSTANT` (1000)
-are the same order of magnitude, so a 1% gap on a multi-thousand-point
-objective is easily enough slack for CP-SAT to settle on a "good enough"
-solution that's meaningfully worse on #1-choice placement specifically,
-without ever being told to prefer the better one -- the objective doesn't
-distinguish between them. Comparing that kind of near-optimal-but-untied
-baseline against trials solved to a different (tighter, default-gap)
-tolerance was measuring which solve happened to land on a better tied
-solution, not which constraint was actually binding. Fixed by giving the
-baseline its own solve, on the identical settings (time limit, default
-relative_gap_limit of 0, no greedy hint) as every trial -- see
-`sensitivity_report()`'s docstring for the full explanation. Re-verified on
-a small synthetic roster with a deliberately tight attribute-balance bound
-(model_common test helpers in `code/server/tests/conftest.py`): the fixed
-version correctly isolates just the two balance-bound families as costing
-2.5 points each, where the buggy version had shown every family -- balance
-bounds, group size, topic coverage, section capacity, all of it -- costing
-an identical 10 points.
+**Why the baseline gets its own solve, on identical settings to every
+trial.** `run_model()`'s production tuning (~20s budget, 0.01 relative gap
+-- chosen so the sync path stays under API Gateway's 29s cap) can return a
+solution that's within 1% of optimal on the *overall* objective while still
+being meaningfully worse on #1-choice placement specifically: preference
+priority and the balance penalty share one objective
+(`BALANCE_CONSTANT * (z_max + M_max) + sum(flexibility * z[i])`), and since
+`UNRANKED_PRIORITY` (1000) is the same order of magnitude as
+`BALANCE_CONSTANT` (1000), a 1% gap on a multi-thousand-point objective is
+easily enough slack to flip several students between rank 1 and rank 2
+without CP-SAT ever being told to prefer one tied solution over another.
+Comparing a baseline solved that way against trials solved to a different,
+tighter tolerance would measure which solve happened to land on a better
+tied solution, not which constraint was actually binding. `sensitivity_report()`
+instead solves the baseline itself on the exact same settings (time limit,
+default `relative_gap_limit` of 0, no greedy hint) as every family trial --
+see its docstring for the full explanation -- so any reported gain reflects
+the family that was dropped. Verified on a small synthetic roster with a
+deliberately tight attribute-balance bound (model_common test helpers in
+`code/server/tests/conftest.py`): the two balance-bound families are
+correctly isolated as costing 2.5 points each, with every other family --
+group size, topic coverage, section capacity -- reporting no meaningful
+gain.
 
 ## 8c. User-adjustable sync solve-time budget
 
-The 20-second CP-SAT budget behind the sync path (§8) used to be a single,
-admin-only number: whatever `CreateGroups.js` sent as `tmax` was silently
-overwritten by `settings.SYNC_SOLVE_TMAX_SECONDS` every time. The person
-running a solve had no way to trade "solve faster, show me *a* result
-sooner" against "spend the full budget hunting for a better one" -- both are
-reasonable asks depending on how much they trust the default grouping and
-how close to launch they are.
+The sync path's CP-SAT budget (§8) is user-adjustable rather than a fixed
+admin setting: the person running a solve can trade "solve faster, show me
+*a* result sooner" against "spend the full budget hunting for a better
+one" -- both are reasonable asks depending on how much they trust the
+default grouping and how close to launch they are.
 
-The Configure & run screen now has a slider for it (`SingleSlider.js` --
+The Configure & run screen has a slider for it (`SingleSlider.js` --
 DualSlider's one-thumb sibling, same `.dslider*` CSS) next to the
 Sync/Async indicator, visible only on the sync path (the cluster/async path
-isn't affected by this at all -- see below). It's sent as a new field,
+isn't affected by this at all -- see below). It's sent as a field,
 **`maxSolveSeconds`**, deliberately separate from the existing `tmax` field
 rather than repurposing it: `tmax` is already overloaded to mean minutes on
 the async/cluster path (a Slurm job budget, still hardcoded to 60 in

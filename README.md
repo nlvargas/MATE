@@ -40,6 +40,15 @@ solved as one:
   a deletion-filter search re-solves with one user-configurable constraint
   family removed at a time to report which specific bound is the problem,
   instead of a generic "try loosening your settings" message.
+- **Sensitivity analysis on a feasible solve, too**: the same deletion-filter
+  mechanism runs on demand after a *successful* solve to report which
+  constraint family is costing the most #1-choice placements if relaxed --
+  the complementary question to infeasibility diagnosis.
+- **A user-adjustable, server-clamped solve-time budget**: the person
+  running a solve picks their own time budget for the in-request CP-SAT
+  path; the server always clamps it to a configured floor/ceiling before
+  it reaches the solver, so a stale or crafted request can't ask for more
+  time than the deployment allows.
 
 See **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** for the full
 technical write-up (stack, the CP-SAT formulation, preprocessing, the
@@ -176,7 +185,8 @@ variables in production (see [Deploying](#deploying)):
 | `DJANGO_DEBUG` | Toggles `DEBUG`, which also controls where static files are served from (local disk vs. S3) and how backend routes are mounted (see comment in `settings.py`) | on (`1`) | **must be `"0"`** |
 | `MATE_CLUSTER_HOST` / `_USER` / `_PASSWORD` / `_PARAMS_PATH` | SSH access to the PUC compute cluster for large (offline) solves | — | required if using the offline path |
 | `MATE_SOLVER` | `cpsat` (default, open-source) or `gurobi` (needs a license) | `cpsat` | `cpsat` |
-| `MATE_SYNC_MAX_STUDENTS` / `MATE_SYNC_TMAX_SECONDS` | Threshold/time-budget for solving synchronously in-request vs. handing off to the cluster -- the frontend's Sync/Async indicator reads `MATE_SYNC_MAX_STUDENTS` at page load via `window.__MATE_CONFIG__` (see `frontend/views.py`), so it's a single value, not a constant duplicated on both sides | 100 / 20s | same |
+| `MATE_SYNC_MAX_STUDENTS` / `MATE_SYNC_TMAX_SECONDS` | Threshold/default time-budget for solving synchronously in-request vs. handing off to the cluster -- the frontend's Sync/Async indicator and solve-time slider read these at page load via `window.__MATE_CONFIG__` (see `frontend/views.py`), so they're each a single value, not a constant duplicated on both sides | 100 / 20s | same |
+| `MATE_SYNC_TMAX_MIN_SECONDS` / `MATE_SYNC_TMAX_MAX_SECONDS` | Floor/ceiling the server clamps the sync solve-time slider to, regardless of what the client sends | 5s / 25s | same |
 | `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_REDIRECT_URI` | Microsoft sign-in, gating who can submit a job to the cluster (see [Cluster sign-in](#cluster-sign-in-microsoft) below) | unset -- cluster submission returns a clear "not configured" error | required to allow any cluster submissions at all |
 | `MATE_ALLOWED_EMAIL_DOMAINS` | Comma-separated email domains allowed to submit to the cluster | `uc.cl,ing.puc.cl` | same, or your own |
 
