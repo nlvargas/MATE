@@ -190,39 +190,6 @@ export default function CreateGroups(props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cookies, cookiesLoaded]);
 
-  // -------------------- Client-side feasibility checks --------------------
-  const issues = useMemo(() => {
-    const found = [];
-    if (totalStudents / groupsNumber > maxStudents || totalStudents / groupsNumber < minStudents) {
-      found.push(tf("causeGroupSize", { students: totalStudents, groups: groupsNumber, min: minStudents, max: maxStudents }));
-    }
-    Object.entries(bounds).forEach(([key, b]) => {
-      if (!b.solo && b.min > maxStudents) {
-        found.push(`${key}: min (${b.min}) > ${t("attributeMax")} (${maxStudents})`);
-      }
-    });
-    if (preferences.length) {
-      const minSum = preferences.reduce((acc, p) => acc + ((prefsBounds[p] && prefsBounds[p].min) || 0), 0);
-      const maxSum = preferences.reduce((acc, p) => acc + ((prefsBounds[p] && prefsBounds[p].max) || groupsNumber), 0);
-      if (minSum > groupsNumber) found.push(t("causeTopic"));
-      if (maxSum < groupsNumber) found.push(t("causeTopic"));
-    }
-    // students[*].disponibilities is a plain array positionally aligned
-    // with `modules` (index i = availability for modules[i], same
-    // convention UploadTemplate.js's per-module availability count uses)
-    // -- so the module's own forEach index below gives its position for
-    // free. The previous `modules.indexOf(m)` re-derived that same index
-    // from scratch on every single student (inside the .filter()
-    // callback), turning an O(modules x students) scan into
-    // O(modules^2 x students).
-    modules.forEach((m, i) => {
-      const avail = students.filter((s) => Number(s.disponibilities[i]) === 1).length;
-      if (capacity[m] !== undefined && capacity[m] < minStudents) found.push(t("causeSection"));
-      if (avail < minStudents) found.push(t("causeSection"));
-    });
-    return found;
-  }, [bounds, prefsBounds, capacity, groupsNumber, minStudents, maxStudents, totalStudents, preferences, modules, students, t, tf]);
-
   // Rough pre-solve size estimate -- how many student types the roster
   // collapses into, how many candidate groups get built, and roughly how
   // many decision variables the model ends up with (see
@@ -232,10 +199,111 @@ export default function CreateGroups(props) {
   // the backend computes for real (model_common.estimate_variable_count()),
   // close enough to show the right indicator before a request is ever
   // sent; the backend's own count is what actually decides which path a
-  // request takes.
+  // request takes. Declared before `issues` below because one of its own
+  // checks (candidate groups vs. requested groups) needs modelSize.groupsCount.
   const modelSize = useMemo(() => estimateModelSize({
     students, modules, preferences, prefsBounds, options, groupsNumber, upperNumber: maxStudents,
   }), [students, modules, preferences, prefsBounds, options, groupsNumber, maxStudents]);
+
+  // -------------------- Client-side feasibility checks --------------------
+  // These are the same closed-form, parameters-only checks that used to
+  // run server-side, on submit, in model_common.validate_feasibility() --
+  // moved here so a person sees the same "this can't work" feedback the
+  // moment the parameters that cause it are entered, instead of after a
+  // round-trip to the backend. See docs/ARCHITECTURE.md's Pre-flight
+  // feasibility checks subsection for the equations each one traces back
+  // to; every check below reads only configured parameters (headcounts,
+  // bounds, capacities), never a decision variable, since none exist yet
+  // at this point -- no model has been built.
+  const issues = useMemo(() => {
+    const found = [];
+
+    // Group-size band vs. total roster: K*Qmin <= sum(R_i) <= K*Qmax.
+    if (totalStudents / groupsNumber > maxStudents || totalStudents / groupsNumber < minStudents) {
+      found.push(tf("causeGroupSize", { students: totalStudents, groups: groupsNumber, min: minStudents, max: maxStudents }));
+    }
+
+    // Section availability: every student type needs at least one
+    // configured section it's actually available for.
+    if (modules.length) {
+      const unavailableCount = students.filter(
+        (s) => !modules.some((m, i) => Number(s.disponibilities[i]) === 1)
+      ).length;
+      if (unavailableCount > 0) {
+        found.push(tf("causeAvailability", { n: unavailableCount }));
+      }
+    }
+
+    // Target group count vs. candidate groups: K <= |G|.
+    if (groupsNumber > modelSize.groupsCount) {
+      found.push(tf("causeGroupCount", {
+        groups: groupsNumber,
+        candidates: modelSize.groupsCount,
+        sectionsNote: modules.length ? t("causeGroupCountSectionsNote") : "",
+      }));
+    }
+
+    // Attribute balance vs. total headcount (non-"solo" bounds only --
+    // "solo" bounds get a free per-group opt-out, so no closed-form
+    // total-headcount check is sound for them). Also keeps the existing
+    // per-group check (a single group can't be asked to hold more of a
+    // value than the group-size band allows in the first place).
+    Object.keys(options || {}).forEach((attr) => {
+      Object.keys(options[attr] || {}).forEach((value) => {
+        const key = `${attr}:${value}`;
+        const b = bounds[key] || { min: 0, max: totalStudents, solo: false };
+        if (b.solo) return;
+        if (b.min > maxStudents) {
+          found.push(`${key}: min (${b.min}) > ${t("attributeMax")} (${maxStudents})`);
+        }
+        const count = options[attr][value];
+        const max = b.max == null ? totalStudents : b.max;
+        const lo = groupsNumber * b.min;
+        const hi = groupsNumber * max;
+        if (count < lo || count > hi) {
+          found.push(tf("causeAttributeBalance", { attr, value, count, groups: groupsNumber, min: b.min, max, lo, hi }));
+        }
+      });
+    });
+
+    // Topic coverage vs. target group count: sum(max_t) >= K, and (only
+    // when every configured topic must be used) sum(min_t) <= K.
+    if (preferences.length) {
+      const minSum = preferences.reduce((acc, p) => acc + ((prefsBounds[p] && prefsBounds[p].min) || 0), 0);
+      const maxSum = preferences.reduce((acc, p) => acc + ((prefsBounds[p] && prefsBounds[p].max) || groupsNumber), 0);
+      if (maxSum < groupsNumber) found.push(t("causeTopic"));
+      if (usedPreferences === preferences.length && minSum > groupsNumber) found.push(t("causeTopic"));
+    }
+
+    // Section capacity vs. roster size: sum(min(C_d, availability_d)) >=
+    // sum(R_i) -- same effective-capacity clamp the backend's own
+    // get_min_capacity() applies (configured seats, capped by who's
+    // actually available for that section).
+    //
+    // students[*].disponibilities is a plain array positionally aligned
+    // with `modules` (index i = availability for modules[i], same
+    // convention UploadTemplate.js's per-module availability count uses)
+    // -- so the module's own forEach index below gives its position for
+    // free. The previous `modules.indexOf(m)` re-derived that same index
+    // from scratch on every single student (inside the .filter()
+    // callback), turning an O(modules x students) scan into
+    // O(modules^2 x students).
+    if (modules.length) {
+      let totalEffectiveCapacity = 0;
+      modules.forEach((m, i) => {
+        const avail = students.filter((s) => Number(s.disponibilities[i]) === 1).length;
+        const cap = capacity[m] !== undefined ? capacity[m] : totalStudents;
+        if (cap < minStudents) found.push(t("causeSection"));
+        if (avail < minStudents) found.push(t("causeSection"));
+        totalEffectiveCapacity += Math.min(cap, avail);
+      });
+      if (totalEffectiveCapacity < totalStudents) {
+        found.push(tf("causeCapacity", { capacity: totalEffectiveCapacity, students: totalStudents }));
+      }
+    }
+
+    return found;
+  }, [bounds, prefsBounds, capacity, groupsNumber, minStudents, maxStudents, totalStudents, preferences, modules, students, options, usedPreferences, modelSize, t, tf]);
 
   function runModelRequest() {
     // Plain Promise chain, not async/await: the babel config here has no

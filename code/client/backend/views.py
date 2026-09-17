@@ -17,7 +17,7 @@ from .utils import (
     id_generator,
     student_type_key,
 )
-from model_common import estimate_variable_count, validate_feasibility
+from model_common import estimate_variable_count
 from io import BytesIO
 from openpyxl import load_workbook
 
@@ -107,20 +107,15 @@ def run_model(request):
 
     students_preferences_number = int(data["students_preferences_number"])
 
-    # Pre-flight, closed-form infeasibility checks (model_common.
-    # validate_feasibility()) -- cheap, sound, and catch a request that's
-    # mathematically guaranteed to fail before spending a synchronous solve
-    # (or a cluster job) on it. Reported the same shape a real infeasible
-    # solve reports its "causes" in (see the `not sol["factible"]` branch
-    # below), so the Results screen doesn't need a separate code path.
-    feasibility_issues = validate_feasibility(data)
-    if feasibility_issues:
-        return Response({
-            "queued": False,
-            "factible": False,
-            "status": "INVALID",
-            "causes": feasibility_issues,
-        }, status=status.HTTP_200_OK)
+    # No closed-form pre-flight feasibility check runs here anymore: those
+    # checks now run client-side, live, as the request is being configured
+    # (see frontend/src/containers/CreateGroups.js's `issues` and
+    # docs/ARCHITECTURE.md's Pre-flight feasibility checks subsection for
+    # why -- catching an infeasible combination of parameters while it's
+    # still being typed beats rejecting it after a round-trip). A request
+    # that reaches this view has already passed those checks in the UI
+    # that built it; a genuinely infeasible request still gets caught by
+    # the solve itself, reported the same "causes" shape as below.
 
     # Estimated decision-variable count (model_common.
     # estimate_variable_count()), not raw student count, decides whether

@@ -116,13 +116,22 @@ const STR = {
     resultsInfeasibleBody: "MATE couldn't find an assignment that satisfies every constraint at once. It re-solved the model with each bound relaxed in turn to isolate exactly which settings conflict -- here's the minimal set that can't all be met together:",
     resultsInfeasibleFallback: "MATE couldn't isolate a specific conflicting set of settings this time. Try loosening the group-size band, an attribute balance bound, or a topic/section limit, then run again.",
     infeasibleDiagnosisNote: "Computed by re-running the solver with each bound relaxed one at a time (a deletion-filter search) -- not a canned guess.",
-    // Still used by CreateGroups.js's client-side pre-flight heuristic (the
-    // "N issue(s) to fix" note in the live summary, shown before a solve is
-    // even attempted) -- keep in sync with that check, separate from the
-    // server-side deletion-filter causes shown on the Results screen above.
+    // These are CreateGroups.js's client-side pre-flight checks (the "N
+    // issue(s) to fix" note in the live summary, shown before a solve is
+    // even attempted) -- the sole source of pre-flight feasibility
+    // feedback now (model_common.validate_feasibility() used to duplicate
+    // several of these server-side; that's gone, see docs/ARCHITECTURE.md's
+    // Pre-flight feasibility checks subsection). Distinct from the
+    // server-side deletion-filter causes a real infeasible solve reports,
+    // shown on the Results screen above.
     causeGroupSize: "The group-size range doesn't divide the roster evenly -- {students} students across {groups} groups needs {min}–{max} students per group to fit exactly.",
     causeSection: "A section's capacity or availability is tighter than the students assigned to it.",
     causeTopic: "The min/max number of groups allowed per topic doesn't add up to the total number of groups.",
+    causeAvailability: "{n} student(s) aren't available for any configured section, so they can't be placed in any group at all.",
+    causeGroupCount: "Requested {groups} groups, but only {candidates} candidate group slot(s) can be built from the configured topics{sectionsNote}.",
+    causeGroupCountSectionsNote: " and sections",
+    causeAttributeBalance: "\"{value}\" ({attr}): {count} student(s), but {groups} group(s) each requiring between {min} and {max} of them need a total between {lo} and {hi}.",
+    causeCapacity: "Configured section capacity totals {capacity} seat(s) across every section, short of the {students} student(s) to place.",
     statGroupsFormed: "Groups formed", statStudentsPlaced: "Students placed", statSolveTime: "Solve time",
     prefOutcomesTitle: "Preference outcomes",
     prefOutcomesSub: "How many students landed in a group matching each preference rank.",
@@ -134,7 +143,6 @@ const STR = {
     sensitivityUnavailable: "MATE couldn't establish a baseline for this analysis this time -- try again.",
     sensitivityNoneBinding: "None of your requirements are costing you #1-choice placements ({pct}% already get their top pick) -- nothing to trade off here.",
     sensitivityBaseline: "{pct}% of students got their #1 choice as configured. Relaxing one of these would raise that further:",
-    sensitivityNote: "Computed by re-solving with each requirement relaxed one at a time and comparing #1-choice placement against this result -- not an estimate.",
     downloadResults: "Download results (.xlsx)",
     groupRoster: "Groups formed",
     studentsInGroup: "{count} students",
@@ -264,6 +272,11 @@ const STR = {
     causeGroupSize: "El rango de tamaño de grupo no calza con la nómina -- {students} alumnos en {groups} grupos necesita entre {min} y {max} alumnos por grupo para calzar exacto.",
     causeSection: "La capacidad o disponibilidad de alguna sección es más estrecha que los alumnos asignados a ella.",
     causeTopic: "El mín/máx de grupos permitidos por tema no cuadra con el número total de grupos.",
+    causeAvailability: "{n} alumno(s) no están disponibles para ninguna sección configurada, por lo que no pueden quedar en ningún grupo.",
+    causeGroupCount: "Se pidieron {groups} grupos, pero con los temas configurados{sectionsNote} solo se pueden armar {candidates} grupo(s) candidato(s).",
+    causeGroupCountSectionsNote: " y las secciones",
+    causeAttributeBalance: "\"{value}\" ({attr}): {count} alumno(s), pero {groups} grupo(s) que requieren entre {min} y {max} cada uno necesitan un total entre {lo} y {hi}.",
+    causeCapacity: "La capacidad configurada de las secciones suma {capacity} cupo(s) en total, por debajo de los {students} alumno(s) a ubicar.",
     statGroupsFormed: "Grupos formados", statStudentsPlaced: "Alumnos ubicados", statSolveTime: "Tiempo de resolución",
     prefOutcomesTitle: "Resultados de preferencias",
     prefOutcomesSub: "Cuántos estudiantes quedaron en un grupo según cada nivel de preferencia.",
@@ -275,7 +288,6 @@ const STR = {
     sensitivityUnavailable: "MATE no pudo establecer una base para este análisis esta vez -- inténtalo de nuevo.",
     sensitivityNoneBinding: "Ninguno de tus requisitos te está costando ubicaciones en la primera opción ({pct}% ya obtiene su primera opción) -- no hay nada que compensar aquí.",
     sensitivityBaseline: "{pct}% de los alumnos obtuvo su primera opción con esta configuración. Relajar uno de estos requisitos subiría ese número:",
-    sensitivityNote: "Calculado volviendo a resolver con cada requisito relajado de a uno y comparando la ubicación en primera opción contra este resultado -- no es una estimación.",
     downloadResults: "Descargar resultados (.xlsx)",
     groupRoster: "Grupos formados",
     studentsInGroup: "{count} alumnos",
