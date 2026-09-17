@@ -172,7 +172,13 @@ def run_model(params):
     if modules:
         m.addConstrs(sum(y[i, g] for i in T for g in G_d[d]) <= cap[d] for d in D)
 
-        m.addConstrs(sum(y[i, g] for g in G_d[d]) <= upper_number * int(students_types[i]["a"][d]) for d in D for i in T)
+        # Bounded by the type's own headcount, not upper_number (one
+        # group's worth) -- a type bigger than a single group is normal,
+        # it just spans several of a section's groups. See
+        # optimization_cpsat.py's identical constraint for the full story
+        # on why upper_number here used to make any such type spuriously
+        # infeasible the moment it was placed into a section at all.
+        m.addConstrs(sum(y[i, g] for g in G_d[d]) <= students_types[i]["students"] * int(students_types[i]["a"][d]) for d in D for i in T)
 
         m.addConstrs(sum(w[g] for g in G_td[p, d]) <= groups_number * u[p, d] for p in preferences for d in D if params['sameDay'])
 
@@ -189,7 +195,14 @@ def run_model(params):
     )
 
     # -------------------- Solver --------------------
-    m.Params.MIPGap = 0.01
+    # No MIPGap override (Gurobi's own default is already 1e-4, i.e.
+    # effectively proven optimal): TimeLimit below already bounds
+    # wall-clock on its own, so a looser gap doesn't buy any extra safety,
+    # it only buys a worse answer. This used to be set to 0.01 -- see
+    # optimization_cpsat.py's identical setting (same story: a demo roster
+    # where a 1% objective slack was enough to score a solution with
+    # several students off their #1 choice as "optimal", even though true
+    # optimal solved in well under a second).
     m.Params.TimeLimit = 0.90*60*params["tmax"]
     m.optimize()
 

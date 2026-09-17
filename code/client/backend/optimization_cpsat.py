@@ -502,16 +502,33 @@ def _add_constraints(model, mp, v, disabled):
 
         for d in D:
             for i in T:
-                # Now vacuous (0 <= 0) whenever a[i][d] == 0 -- every y[i, g]
+                # Vacuous (0 <= 0) whenever a[i][d] == 0 -- every y[i, g]
                 # for g in G_d[d] is already absent from y in that case (see
-                # _build_vars() above) -- but kept as-is (not skipped) for
-                # the eligible (a[i][d] == 1) case, where it's a real,
-                # pre-existing bound: how many students of type i can sit in
-                # section d at all, across every one of that section's
-                # groups, not just the per-group upper_number cap.
+                # _build_vars() above), so this only does real work for the
+                # eligible (a[i][d] == 1) case. There it has to bound a
+                # type's *total* headcount across every one of that
+                # section's groups by that type's own headcount, not by
+                # upper_number (one group's worth): a type with more
+                # students than fit in a single group is completely normal
+                # -- it just spans several of that section's groups, the
+                # same way headcount conservation already lets it span
+                # several groups overall. Using upper_number here used to
+                # cap it at one group's worth instead, which made the whole
+                # model spuriously infeasible for any type larger than
+                # upper_number the moment it was placed into a section at
+                # all (see test_model_solving.py's regression test for a
+                # minimal repro). Found while investigating why the demo
+                # roster in docs/ARCHITECTURE.md's Demo section left so many
+                # students outside their ranked topics: with this bug, a type
+                # that outgrows one group can get silently shut out of an
+                # entire section it's actually available for, forcing it
+                # toward whatever section/topic combination it *can* still fit
+                # into a single group of -- not a true topic-capacity shortage,
+                # just this bound throwing away otherwise perfectly good,
+                # on-preference placements.
                 model.Add(
                     sum(y.get((i, g), 0) for g in G_d[d])
-                    <= upper_number * int(students_types[i]["a"][d])
+                    <= students_types[i]["students"] * int(students_types[i]["a"][d])
                 )
 
         if params["sameDay"]:
@@ -800,7 +817,21 @@ def _solve_full(params):
     search_budget = max(_MIN_SEARCH_SECONDS, total_budget - elapsed_before_search)
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = search_budget
-    solver.parameters.relative_gap_limit = 0.01
+    # No relative_gap_limit override (CP-SAT's own default is already ~0,
+    # i.e. proven optimal): search_budget above already bounds wall-clock
+    # on its own, so a looser gap doesn't buy any extra safety, it only
+    # buys a worse answer. This used to be set to 0.01 -- checked while
+    # investigating a demo roster where the Results panel's #1-choice rate
+    # (computed from run_model()'s own solve) and the Sensitivity panel's
+    # baseline (sensitivity_report() below, which was never loosened) came
+    # out 25 points apart on the exact same request. The 1% objective slack
+    # was enough to let a solution with several students on their #2
+    # choice score as "OPTIMAL", even though the true optimum -- reachable
+    # in well under a second, nowhere near search_budget -- put nearly all
+    # of them on their #1. A roster large enough that 0% actually costs
+    # meaningful time still can't run over: search_budget stops it exactly
+    # like before, it just reports FEASIBLE (best found) instead of
+    # OPTIMAL in that case, same as any other time-limited CP-SAT solve.
     solver.parameters.num_search_workers = 8
     status = solver.Solve(model)
     return solver, ctx, status
@@ -905,29 +936,29 @@ def sensitivity_report(params):
     unlike an internal objective score.
 
     IMPORTANT: the baseline solve here is deliberately its OWN solve, on
-    the exact same solver settings (time limit, default relative_gap_limit
-    of 0) as every family trial below -- NOT a call to run_model()/
-    _solve_full(), even though that would also produce a "baseline"
-    result. run_model()'s production tuning (a ~20s budget and a 0.01
-    relative gap, chosen so the sync path stays under API Gateway's 29s
-    cap -- see its docstring) means it can return a solution that's within
-    1% of optimal on the *overall* objective while still being
-    meaningfully worse on #1-choice placement specifically: preference
-    priority and the balance penalty share one objective
-    (BALANCE_CONSTANT * (z_max + M_max) + sum(flexibility * z[i])), and
-    since UNRANKED_PRIORITY (1000) is the same order of magnitude as
-    BALANCE_CONSTANT (1000), a 1% gap on a multi-thousand-point objective
-    is easily enough slack to flip several students between rank 1 and
-    rank 2 without CP-SAT ever "seeing" a reason to prefer one over the
-    other. Comparing that kind of near-optimal-but-untied baseline against
-    trials solved to a tighter/different tolerance produced a real bug
-    during development here: every family, including ones that plainly
-    shouldn't matter, showed the exact same suspiciously-round gain --
-    an artifact of the tolerance mismatch, not a genuine finding. Solving
-    baseline and every trial the same way (see solve_variant() below)
-    closes that gap: any difference reported now reflects the family
-    that was dropped, not which solve happened to land on a better tied
-    solution.
+    the exact same solver settings (a fixed trial time limit, default
+    relative_gap_limit of 0) as every family trial below -- NOT a call to
+    run_model()/_solve_full(), even though that would also produce a
+    "baseline" result. Comparing an already-solved baseline against trials
+    solved on different settings produced a real bug during development
+    here: back when run_model()'s sync path traded a bit of accuracy for
+    headroom under API Gateway's 29s cap (a 0.01 relative_gap_limit -- see
+    _solve_full()'s comment for why that traded away more than it bought
+    and is gone now), every family, including ones that plainly shouldn't
+    matter, showed the exact same suspiciously-round gain against that
+    looser baseline -- an artifact of the tolerance mismatch, not a
+    genuine finding. Solving baseline and every trial the same way (see
+    solve_variant() below) closes that gap: any difference reported now
+    reflects the family that was dropped, not which solve happened to
+    land on a better tied solution. Kept as its own solve rather than
+    reusing run_model()'s result even now that both use the same gap:
+    sensitivity_report() is a separate on-demand request from the Results
+    screen, fired well after run_model() already finished and returned
+    (see this function's "Meant to run as a separate..." note below), so
+    there's no live run_model() result sitting around to reuse -- and the
+    baseline still has to run on the same trial time limit as its own
+    family trials below, not run_model()'s search budget, for the same
+    reason every trial has to match the baseline.
 
     Unlike the infeasibility deletion filter, dropping one family from an
     already-feasible model can only relax its feasible region -- it can

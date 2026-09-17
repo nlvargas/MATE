@@ -59,6 +59,57 @@ def test_run_model_group_names_are_display_names_not_internal_keys(params_factor
     assert "Tema" not in sol["results"][0]["group_name"]
 
 
+def test_run_model_places_a_type_larger_than_one_group_within_a_single_section(params_factory, student_type_factory):
+    # One section, one topic, one type of 10 students, upper_number=4 --
+    # three groups of size <=4 comfortably fit all 10 (e.g. 4+3+3), and
+    # since there's only one configured section every one of that type's
+    # groups lands in it anyway, so this has to be feasible regardless of
+    # how many sections exist. It's a minimal reproduction of a bug where
+    # _add_constraints()'s per-type-per-section bound capped a type's
+    # *total* headcount within a section to upper_number (one group's
+    # worth) instead of the type's own headcount -- so any type larger
+    # than a single group, placed into a section at all, made the whole
+    # model spuriously infeasible the moment sections were configured.
+    types = {"T0": student_type_factory("T0", students=10, preferences={"1": "Math"}, a={"Mon": 1})}
+    params = params_factory(
+        students_types=types,
+        preferences={"Math": {"min": 0, "max": 5}},
+        modules=["Mon"],
+        groups_number=3, lower_number=1, upper_number=4,
+    )
+    sol = cpsat.run_model(params)
+
+    assert sol["factible"] is True, sol["causes"]
+    total_placed = sum(len(g["students"]) for g in sol["results"])
+    assert total_placed == 10
+
+
+def test_solve_full_uses_a_tight_relative_gap_not_a_loosened_one(params_factory, student_type_factory):
+    # Regression test for the bug behind a Results-vs-Sensitivity-panel
+    # discrepancy found while validating the demo screenshots: a 48-student
+    # roster's Results panel showed 69% of students on their #1 choice,
+    # while the Sensitivity panel's baseline (a separate, tight-gap solve
+    # of the exact same request -- see sensitivity_report()'s docstring)
+    # showed 93.8%. The cause was _solve_full() loosening CP-SAT's
+    # relative_gap_limit to 0.01, even though the search_budget time limit
+    # already bounds wall-clock with or without a loosened gap -- so the
+    # 1% of objective slack it bought was pure downside, and was enough on
+    # a realistic roster to let a solution with several students off their
+    # #1 choice come back labeled OPTIMAL. Guard against it creeping back.
+    types = {
+        "T0": student_type_factory("T0", students=4, preferences={"1": "Math"}),
+        "T1": student_type_factory("T1", students=4, preferences={"1": "Physics"}),
+    }
+    params = params_factory(
+        students_types=types,
+        preferences={"Math": {"min": 0, "max": 2}, "Physics": {"min": 0, "max": 2}},
+        groups_number=2, lower_number=1, upper_number=10,
+    )
+    solver, ctx, status = cpsat._solve_full(params)
+
+    assert solver.parameters.relative_gap_limit == 0.0
+
+
 # -------------------- infeasibility diagnosis --------------------
 
 def test_run_model_infeasible_reports_empty_results_and_causes(params_factory, student_type_factory):
