@@ -60,9 +60,12 @@ warm-start heuristic and its benchmarks, and the sync/async split).
   [Zappa](https://github.com/zappa/Zappa). Static assets are served from
   S3 in production.
 - **Solver**: [OR-Tools](https://developers.google.com/optimization) CP-SAT
-  (`code/client/backend/optimization_cpsat.py`, the open-source default,
-  runs in-process for small rosters) or Gurobi (`code/server/optimization.py`,
-  an optional swap-in, runs on a Slurm cluster via SSH for large rosters).
+  (`code/client/backend/optimization_cpsat.py`, open-source, runs
+  in-process for small rosters) for the sync path, Gurobi
+  (`code/server/optimization.py`) on a Slurm cluster via SSH for large
+  rosters -- two independently maintained implementations of the same
+  formulation, not a runtime-configurable choice (see `model_common.py`'s
+  module docstring).
 - **Frontend**: React (bundled with Webpack) served by the Django template
   in `code/client/frontend/`.
 - **CI**: GitHub Actions runs the Django system check, the solver's test
@@ -73,13 +76,18 @@ warm-start heuristic and its benchmarks, and the sync/async split).
 
 ```
 code/
-  client/       Django project (backend API + served frontend)
+  client/       Django project (backend API + served frontend) — a
+                self-contained, independently deployed project
     project/    Django settings, root urls
-    backend/    REST API views (upload, run_model)
+    backend/    REST API views (upload, run_model), the CP-SAT solver
+                (optimization_cpsat.py), and its own copy of model_common.py
     frontend/   React app source (frontend/src) + built bundle (frontend/static)
-  server/       The optimizer itself — model_common.py, optimization_cpsat.py,
-                optimization.py (Gurobi variant); runs standalone on the cluster
-                for large jobs, or is imported directly by backend/ for small ones
+  server/       The Gurobi optimizer — its own independent copy of
+                model_common.py, plus optimization.py; runs standalone on
+                the cluster for large jobs, reached only over SSH by
+                code/client/backend/utils.py's upload_parms() -- never
+                imported in-process by code/client (see model_common.py's
+                module docstring)
 docs/
   ARCHITECTURE.md   Technical deep-dive + screenshots
 ```
@@ -137,14 +145,14 @@ NODE_OPTIONS=--openssl-legacy-provider npm run build
 With the backend running (`DEBUG=1`), open `http://127.0.0.1:8000/` — the
 wizard should load: Setup → Upload → Configure & run → Results.
 
-### 3. The solver test suite
+### 3. The solver test suites
 
-`code/server/tests/` covers the whole optimization core -- preprocessing
-(`model_common.py`), and model building/solving and postprocessing
-(`optimization_cpsat.py`, which actually lives in `code/client/backend/`
-since only the Django app runs it -- see [Stack](#stack)). Run it with
-`code/server`'s `requirements-dev.txt`, which pulls in `ortools` just for
-these tests (the cluster-side runtime doesn't need it):
+Two independent suites, matching the two independent codebases (see
+[Stack](#stack) and `model_common.py`'s module docstring): neither
+imports the other.
+
+`code/server/tests/` covers `model_common.py`'s preprocessing, from
+`code/server`'s own copy:
 
 ```
 cd code/server
@@ -152,6 +160,18 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 pytest tests/ -v
+```
+
+`code/client/backend/tests/` covers model building/solving and
+postprocessing (`optimization_cpsat.py`), plus `code/client`'s own copy
+of `model_common.py`, using the venv you already set up in step 1 (or a
+fresh one -- either way, `pytest` needs adding via `requirements-dev.txt`,
+which layers on top of `requirements.txt`):
+
+```
+cd code/client
+pip install -r requirements-dev.txt
+pytest backend/tests/test_model_solving.py backend/tests/test_postprocessing.py -v
 ```
 
 ### 4. End-to-end smoke test
@@ -184,7 +204,6 @@ variables in production (see [Deploying](#deploying)):
 | `DJANGO_SECRET_KEY` | Django's `SECRET_KEY` | insecure placeholder | set a real value |
 | `DJANGO_DEBUG` | Toggles `DEBUG`, which also controls where static files are served from (local disk vs. S3) and how backend routes are mounted (see comment in `settings.py`) | on (`1`) | **must be `"0"`** |
 | `MATE_CLUSTER_HOST` / `_USER` / `_PASSWORD` / `_PARAMS_PATH` | SSH access to the PUC compute cluster for large (offline) solves | — | required if using the offline path |
-| `MATE_SOLVER` | `cpsat` (default, open-source) or `gurobi` (needs a license) | `cpsat` | `cpsat` |
 | `MATE_SYNC_MAX_STUDENTS` / `MATE_SYNC_TMAX_SECONDS` | Threshold/default time-budget for solving synchronously in-request vs. handing off to the cluster -- the frontend's Sync/Async indicator and solve-time slider read these at page load via `window.__MATE_CONFIG__` (see `frontend/views.py`), so they're each a single value, not a constant duplicated on both sides | 100 / 20s | same |
 | `MATE_SYNC_TMAX_MIN_SECONDS` / `MATE_SYNC_TMAX_MAX_SECONDS` | Floor/ceiling the server clamps the sync solve-time slider to, regardless of what the client sends | 5s / 25s | same |
 | `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_REDIRECT_URI` | Microsoft sign-in, gating who can submit a job to the cluster (see [Cluster sign-in](#cluster-sign-in-microsoft) below) | unset -- cluster submission returns a clear "not configured" error | required to allow any cluster submissions at all |
@@ -270,23 +289,14 @@ DJANGO_DEBUG=0 AWS_PROFILE=mate python manage.py collectstatic --noinput
   package (mainly `ortools`, which pulls in `pandas`/`numpy`) exceeds
   Lambda's 250MB unzipped code-size limit, so Zappa uploads the real
   package to S3 and unpacks it into `/tmp` at cold start instead.
-- **`code/client/model_common.py`** (gitignored, not something you edit)
-  is generated automatically on every deploy by `deploy_hooks.py`, wired
-  in via `zappa_settings.json`'s `"callbacks": {"zip": ...}`. It's a copy
-  of `code/server/model_common.py`, needed because Zappa only zips up
-  `code/client/` — the directory it's run from — so the *sibling*
-  `code/server/` directory (where the real `model_common.py` lives, shared
-  with the Gurobi/cluster backend) would otherwise never make it into the
-  Lambda package, even though `backend/utils.py` and
-  `backend/optimization_cpsat.py` both import it. If that import fails,
-  Django fails to even load its URLconf, so *every* route 500s — including
-  a bare `GET /`, which is exactly the failure Zappa's own post-deploy
-  health check exercises. You shouldn't need to do anything for this —
-  it runs automatically as part of `zappa update dev` — but if you ever
-  see `ModuleNotFoundError: No module named 'model_common'` in
-  `zappa tail dev`, that's this callback not having run (e.g. because
-  something invoked Zappa's packaging without going through the `zip`
-  callback).
+- **`code/client/model_common.py`** is a real, committed file, not
+  generated at deploy time — `code/client` is fully self-contained, so
+  Zappa zipping up only that directory (the directory it's run from) is
+  enough on its own; there's no sibling directory it needs to reach into.
+  It's a hand-duplicated copy of `code/server/model_common.py`, kept in
+  sync by hand rather than shared via import — see that file's module
+  docstring for why. If you change one copy, change the other and rerun
+  both test suites ([step 3](#3-the-solver-test-suites)) before deploying.
 - Large-roster (offline) runs need the cluster SSH credentials set as
   Lambda environment variables too, if you're using that path in production.
 

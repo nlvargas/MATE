@@ -1,22 +1,26 @@
 """
-Shared test scaffolding for code/server's tests: model_common.py (this
-suite's own copy, see its module docstring for why it's duplicated rather
-than shared with code/client) and optimization.py (Gurobi), the cluster
-backend that predates the Django app. code/server goes on sys.path so
-tests can `import model_common` the same bare-name way optimization.py
-itself does; neither module is part of a `server` package as far as this
-import is concerned. optimization_cpsat.py (the CP-SAT backend) has its
-own, separate test suite and conftest.py under code/client/backend/tests/
--- this file never reaches into code/client, on purpose, matching the
-client/server independence model_common.py's docstring describes.
+Shared test scaffolding for code/client/backend's optimization_cpsat.py
+tests: builds the same fixtures code/server/tests/conftest.py does, kept
+as an independent copy rather than imported from there -- code/client and
+code/server are two separately deployed projects that never import each
+other's code, only ever communicating by submitting a job to the cluster
+over SSH (see model_common.py's module docstring). code/client/backend
+(where optimization_cpsat.py and its bare `from model_common import ...`
+live) and code/client (where this app's own copy of model_common.py
+lives, right next to manage.py) go on sys.path so tests can `import
+optimization_cpsat` / trigger its `from model_common import ...` the same
+bare-name way the real Django app does at runtime, without any Django
+settings/app registry needing to be spun up.
 """
 import os
 import sys
 
 _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
-_SERVER_DIR = os.path.dirname(_TESTS_DIR)
-if _SERVER_DIR not in sys.path:
-    sys.path.insert(0, _SERVER_DIR)
+_BACKEND_DIR = os.path.dirname(_TESTS_DIR)
+_CLIENT_DIR = os.path.dirname(_BACKEND_DIR)
+for _dir in (_CLIENT_DIR, _BACKEND_DIR):
+    if _dir not in sys.path:
+        sys.path.insert(0, _dir)
 
 import pytest
 
@@ -27,7 +31,8 @@ def make_student_type(tid, students=1, flexibility=1, answered=True, preferences
     Build one "student type" dict -- students_types[tid] everywhere in the
     solver -- with sane defaults for fields a test doesn't care about.
     `a` maps module name -> "0"/"1"/0/1 (section availability), matching
-    the real shape produced by client-side create_students_types().
+    the real shape produced by this app's own create_students_types()
+    (backend/utils.py).
     """
     preferences = preferences or {}
     a = a or {}
@@ -49,10 +54,11 @@ def make_params(students_types, attributes=None, preferences=None, groups_number
                  same_day=False, fixed_day=None, used_preferences=None,
                  students_types_attr=None, students=None):
     """
-    Build a full `params` dict -- the shape create_parms() (client/backend/
-    utils.py) produces from an uploaded roster -- directly from a
-    {type_id: student_type_dict} mapping, so tests can construct exactly
-    the roster shape they need without going through a spreadsheet upload.
+    Build a full `params` dict -- the shape create_parms() (this
+    directory's own backend/utils.py) produces from an uploaded roster --
+    directly from a {type_id: student_type_dict} mapping, so tests can
+    construct exactly the roster shape they need without going through a
+    spreadsheet upload.
 
     Fills in `students` (the per-student roster _build_model()'s
     preprocessing/postprocessing actually reads, e.g. for

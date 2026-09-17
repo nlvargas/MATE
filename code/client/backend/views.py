@@ -50,13 +50,14 @@ def _preference_outcome(sol, students_preferences_number):
     Tally how many students landed in each preference rank (1st choice, 2nd
     choice, ..., or none of their ranked topics). Same job as
     code/server/utils.py's get_report() (used for the emailed/offline
-    path) -- this view doesn't import that module directly, since its bare
-    name collides with this package's own utils.py (see the comment on
-    SERVER_DIR in project/settings.py) -- but both now key into `priority`
-    via the shared model_common.student_type_key() (imported here as
-    student_type_key) instead of each independently re-deriving the same
-    key from an f-string, which used to be able to silently disagree (see
-    that function's docstring).
+    path) -- this view never imports that module (code/server is a
+    separate, independently deployed project this one only ever talks to
+    over SSH, never in-process -- see model_common.py's module docstring)
+    -- but both key into `priority` the same way, via each side's own
+    model_common.student_type_key() (imported here as student_type_key)
+    instead of independently re-deriving the same key from an f-string,
+    which used to be able to silently disagree (see that function's
+    docstring).
     """
     priority = sol["priority"]
     values = {str(i): 0 for i in range(1, students_preferences_number + 1)}
@@ -74,29 +75,23 @@ def _preference_outcome(sol, students_preferences_number):
     return values
 
 
-def _run_solver(solver_name, data):
+def _run_solver(data):
     """
-    Import and call the configured solver's run_model(data). Imported lazily
-    (not at module load time) so an unconfigured/missing solver only breaks
-    the request that needed it, not the whole Django process -- and so the
-    default CP-SAT path never requires gurobipy to be importable at all.
+    Import and call the CP-SAT solver's run_model(data). Imported lazily
+    (not at module load time) so a missing ortools install only breaks the
+    request that needed it, not the whole Django process. This app only
+    ever runs CP-SAT in-process -- the Gurobi backend (code/server/
+    optimization.py) is a separate, independently deployed project reached
+    only by submitting a job to the cluster over SSH (see
+    backend/utils.py's upload_parms()), never imported here.
     """
-    if solver_name == "gurobi":
-        try:
-            from optimization import run_model
-        except ImportError as e:
-            raise RuntimeError(
-                "MATE_SOLVER is set to 'gurobi' but gurobipy isn't installed/licensed "
-                "in this environment."
-            ) from e
-    else:
-        try:
-            from .optimization_cpsat import run_model
-        except ImportError as e:
-            raise RuntimeError(
-                "Couldn't import the CP-SAT solver -- is ortools installed "
-                "(see code/client/requirements.txt)?"
-            ) from e
+    try:
+        from .optimization_cpsat import run_model
+    except ImportError as e:
+        raise RuntimeError(
+            "Couldn't import the CP-SAT solver -- is ortools installed "
+            "(see code/client/requirements.txt)?"
+        ) from e
     return run_model(data)
 
 
@@ -144,7 +139,7 @@ def run_model(request):
         data["tmax"] = tmax_seconds / _SYNC_TIME_LIMIT_SAFETY_FACTOR
         started = time.monotonic()
         try:
-            sol = _run_solver(settings.OPTIMIZER_SOLVER, data)
+            sol = _run_solver(data)
         except RuntimeError as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         solve_time = time.monotonic() - started
@@ -220,9 +215,11 @@ def sensitivity(request):
 
     Sync-only, same SYNC_SOLVE_MAX_VARIABLES cap run_model()'s inline path
     uses: a roster too large to solve inline is too large to run this
-    analysis on top of that solve, too. CP-SAT only for now -- the Gurobi
-    backend doesn't have sensitivity_report() yet, same as it doesn't have
-    find_infeasibility_causes() (see run_model()'s "causes" comment).
+    analysis on top of that solve, too. CP-SAT only, not "for now" but by
+    design -- this app only ever runs CP-SAT in-process (see _run_solver()),
+    and the Gurobi backend's cluster/async path has no on-demand analysis
+    like this one at all, same reason it has no find_infeasibility_causes()
+    (see run_model()'s "causes" comment).
     """
     params = json.loads(request.body.decode('utf-8'))
     data = create_parms(params)
@@ -232,12 +229,6 @@ def sensitivity(request):
         return Response({
             "error": "too_large",
             "message": "Sensitivity analysis is only available for rosters solved inline.",
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-    if settings.OPTIMIZER_SOLVER == "gurobi":
-        return Response({
-            "error": "unsupported_solver",
-            "message": "Sensitivity analysis is only implemented for the CP-SAT solver.",
         }, status=status.HTTP_400_BAD_REQUEST)
 
     try:

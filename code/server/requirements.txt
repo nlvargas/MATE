@@ -1,9 +1,11 @@
 # Runtime dependencies for code/server -- the Gurobi backend (optimization.py)
-# that runs standalone on the cluster via main.py/run.sh, plus the shared
-# model_common.py preprocessing. gurobipy itself isn't listed here since
-# it's licensed and typically installed separately (e.g. via the cluster's
-# own Gurobi module) rather than from PyPI. openpyxl is for utils.py's
-# create_excel(), which builds the results workbook emailed to the
-# instructor. (ortools/CP-SAT moved out with optimization_cpsat.py -- see
-# requirements-dev.txt, which still needs it to run this directory's tests.)
+# that runs standalone on the cluster via main.py/run.sh, plus its own copy
+# of model_common.py's preprocessing (duplicated from code/client's copy by
+# hand, not imported -- see model_common.py's module docstring). gurobipy
+# itself isn't listed here since it's licensed and typically installed
+# separately (e.g. via the cluster's own Gurobi module) rather than from
+# PyPI. openpyxl is for utils.py's create_excel(), which builds the results
+# workbook emailed to the instructor. Neither model_common.py nor
+# optimization.py needs ortools -- that's code/client's own dependency for
+# optimization_cpsat.py, which never runs here.
 openpyxl

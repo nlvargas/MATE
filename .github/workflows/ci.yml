@@ -16,7 +16,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
-          pip install -r code/client/requirements.txt
+          pip install -r code/client/requirements-dev.txt
           pip install -r code/server/requirements-dev.txt
       - name: Django system check
         working-directory: code/client
@@ -24,9 +24,12 @@ jobs:
           DJANGO_SECRET_KEY: ci-only-not-a-real-secret
           DJANGO_DEBUG: "1"
         run: python manage.py check
-      - name: Solver tests (preprocessing, model solving, postprocessing)
+      - name: Server tests (model_common.py preprocessing)
         working-directory: code/server
         run: pytest tests/ -v
+      - name: Client tests (CP-SAT model solving, postprocessing)
+        working-directory: code/client/backend
+        run: pytest tests/test_model_solving.py tests/test_postprocessing.py -v
 
   frontend:
     name: Frontend (React)

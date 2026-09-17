@@ -1,0 +1,7 @@
+-r requirements.txt
+# ortools is already in requirements.txt above (this app runs CP-SAT
+# in-process), so this file only adds pytest -- needed to run
+# backend/tests/test_model_solving.py / test_postprocessing.py, the CP-SAT
+# solver test suite (see model_common.py's module docstring for why this
+# lives here, independent of code/server's own test suite).
+pytest>=7

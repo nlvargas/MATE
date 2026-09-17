@@ -6,11 +6,12 @@ checks the sync (in-request) CP-SAT path actually places every student.
 
 Not a pytest test and not wired into CI on purpose: it needs a live server
 to point at (local `manage.py runserver`, or a real deployed URL after a
-`zappa update dev`), which CI can't provide -- CI's own coverage is
-code/server/tests/ (calls optimization_cpsat.run_model() directly, no
-Django/HTTP in the loop). This is the complementary check: is the actual
-API, as deployed, still wired together correctly end to end. Run it
-yourself after any deploy:
+`zappa update dev`), which CI can't provide -- CI's own coverage is this
+directory's own test_model_solving.py/test_postprocessing.py (calls
+optimization_cpsat.run_model() directly, no Django/HTTP in the loop) plus
+code/server/tests/ for model_common.py. This is the complementary check:
+is the actual API, as deployed, still wired together correctly end to
+end. Run it yourself after any deploy:
 
     python3 backend/tests/e2e_smoke_test.py --base-url http://127.0.0.1:8000/dev
     python3 backend/tests/e2e_smoke_test.py --base-url https://<your-deployed-host>/dev

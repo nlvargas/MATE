@@ -1,7 +1,2 @@
 -r requirements.txt
 pytest>=7
-# ortools -- not part of requirements.txt above, since nothing that runs on
-# the cluster imports it anymore -- is needed here to exercise
-# optimization_cpsat.py (now in code/client/backend/) via this directory's
-# test suite (test_model_solving.py / test_postprocessing.py).
-ortools>=9.9

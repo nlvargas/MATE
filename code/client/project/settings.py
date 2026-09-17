@@ -1,5 +1,4 @@
 import os
-import sys
 import environ
 
 from django.core.exceptions import ImproperlyConfigured
@@ -21,23 +20,13 @@ env = environ.Env()
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 # -------------------- Optimizer solver configuration --------------------
-# optimization_cpsat.py (the default, open-source CP-SAT backend) lives in
-# backend/ and is imported normally, since only this Django app ever runs
-# it. code/server -- the Gurobi backend (optimization.py) that predates
-# this app and still runs standalone on the cluster (see backend/utils.py's
-# upload_parms()) -- also holds model_common.py, the solver-agnostic
-# preprocessing shared by both backends. Adding it to sys.path lets the web
-# backend import model_common directly (and optimization.py, lazily, if
-# MATE_SOLVER=gurobi) instead of duplicating it here.
-SERVER_DIR = os.path.join(os.path.dirname(BASE_DIR), "server")
-if SERVER_DIR not in sys.path:
-    sys.path.insert(0, SERVER_DIR)
-
-# Default is CP-SAT (OR-Tools): open source, no license needed, installed via
-# code/server/requirements.txt. Set MATE_SOLVER=gurobi to use the Gurobi
-# backend instead -- that additionally requires gurobipy and a valid license
-# wherever this process runs.
-OPTIMIZER_SOLVER = os.environ.get("MATE_SOLVER", "cpsat")
+# optimization_cpsat.py (the default and only in-request backend, OR-Tools
+# CP-SAT) lives in backend/ and imports its own local model_common.py,
+# right next to it -- code/server (the Gurobi backend that runs standalone
+# on the cluster, reached only by SSH job submission -- see
+# backend/utils.py's upload_parms()) is a separate, independently deployed
+# project this one never imports from. See model_common.py's module
+# docstring for why that copy is duplicated by hand rather than shared.
 
 # Problems at or below this many *estimated decision variables* (see
 # model_common.estimate_variable_count()) are solved synchronously inside
