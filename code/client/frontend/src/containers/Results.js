@@ -190,6 +190,23 @@ export default function Results({ runResult, attributes, goConfigure }) {
       </div>
 
       <div className="card">
+        <div className="card-head"><h3>{t("groupRoster")}</h3></div>
+        {runResult.groups.map((g) => (
+          <div className="group-card" key={g.group}>
+            <div className="group-card-head">
+              <h4>{g.group_name}</h4>
+              <span className="group-card-count">{tf("studentsInGroup", { count: g.size })}</span>
+            </div>
+            <div className="group-student-list">
+              {g.students.map((s) => (
+                <span className="group-student-chip" key={s.id}>{s.id}</span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card">
         <div className="card-head"><h3>{t("sensitivityTitle")}</h3></div>
         <p className="card-sub">{t("sensitivitySub")}</p>
         {!sensitivity && (
@@ -239,27 +256,9 @@ export default function Results({ runResult, attributes, goConfigure }) {
                   </div>
                 </div>
               ))}
-              <div className="modal-box" style={{ marginTop: 16, fontSize: 11.5 }}>{t("sensitivityNote")}</div>
             </React.Fragment>
           )
         )}
-      </div>
-
-      <div className="card">
-        <div className="card-head"><h3>{t("groupRoster")}</h3></div>
-        {runResult.groups.map((g) => (
-          <div className="group-card" key={g.group}>
-            <div className="group-card-head">
-              <h4>{g.group_name}</h4>
-              <span className="group-card-count">{tf("studentsInGroup", { count: g.size })}</span>
-            </div>
-            <div className="group-student-list">
-              {g.students.map((s) => (
-                <span className="group-student-chip" key={s.id}>{s.id}</span>
-              ))}
-            </div>
-          </div>
-        ))}
       </div>
     </div></div>
   );
