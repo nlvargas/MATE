@@ -10,9 +10,9 @@ the returned solution actually respects every one of those rules. It also
 runs a second, deliberately-impossible instance to check that infeasible
 problems are reported as such instead of silently returning nonsense.
 
-Run with:  python3 validate_cpsat.py
-(needs `pip install ortools` first -- see the note in the repo's README/PR
-description about why that couldn't be verified in this environment.)
+Run with (from code/client, venv active):  python3 backend/validate_cpsat.py
+ortools is already a code/client dependency (requirements.txt), so nothing
+extra to install.
 
 Scenario
 --------
@@ -25,7 +25,13 @@ Every type ranks topic X and topic Y as its #1/#2 choice (alternating).
   - level:B is a "solo" attribute: every formed group must have either
     1-2 level:B students, or none at all (tests the P/solo escape hatch).
 """
+import os
 import sys
+
+# optimization_cpsat.py's bare `from model_common import ...` expects
+# code/client on sys.path (true at runtime because manage.py lives there --
+# see backend/tests/conftest.py for the same setup under pytest).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from optimization_cpsat import run_model
 

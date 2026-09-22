@@ -94,17 +94,12 @@ _IIS_TRIAL_RETRY_TIME_LIMIT_SECONDS = 10.0
 _IIS_TOTAL_TIME_BUDGET_SECONDS = 15.0
 
 # Whether _build_model() adds the lexicographic symmetry-breaking constraints
-# (see the "Symmetry breaking" block inside _build_model()). Benchmarked
-# against synthetic rosters of 150 and 400 students (25 and 60 groups) on
-# 2026-09-09: it made every solve slower, not faster -- +45% at 150 students
-# (3.2s -> 5.5s, still OPTIMAL) and +300%+ at 400 (29s OPTIMAL -> 124s, and
-# it didn't even finish proving optimality, landing on FEASIBLE against the
-# solve-time cap instead). CP-SAT already does its own symmetry detection
-# internally, and the extra inequality chains apparently interfere with its
-# search/LP relaxation more than they prune it. Left here (default off,
-# never on any real request) as a documented dead end rather than deleted,
-# in case a future, differently-shaped model benefits from it -- flip this
-# to True locally to re-test, don't wire it back up to a request param.
+# (see "Symmetry breaking" inside _build_model()). Benchmarked on synthetic
+# 150/400-student rosters (2026-09-09): made every solve slower, not faster
+# (+45% at 150, +300%+ at 400, the latter not even proving optimality).
+# CP-SAT already does its own symmetry detection; the extra inequality
+# chains interfere with search more than they help. Left off by default as
+# a documented dead end -- flip locally to re-test, don't wire it up live.
 _ENABLE_SYMMETRY_BREAKING = False
 
 
@@ -343,27 +338,15 @@ def _build_vars(model, mp):
     max_type_size = max(total_by_type.values())
     preferences = mp["preferences"]
 
-    # y[i, g] is sparse: a (type, group) pair is only structurally possible
-    # if the type marked itself available for the section group g belongs
-    # to (see the "sum(y[i, g] for g in G_d[d]) <= upper_number * a[i][d]"
-    # constraint in _add_constraints() below -- before this change that was
-    # the ONLY thing that forced an ineligible y[i, g] to 0, but CP-SAT
-    # still had to create the variable, add it to every sum() it appears in
-    # below, and propagate it down to 0 during presolve/search, for every
-    # (type, group) combination -- most of them structurally dead on
-    # arrival whenever there's more than one section. Skipping variable
-    # creation for those pairs entirely is exactly as correct (the
-    # constraint used to force sum(y[i,g])==0 for these g's; now there's
-    # simply no y[i, g] term to sum) and yields a strictly smaller model.
-    # Every place below that indexes y[i, g] for a (type, group) pair that
-    # might not exist uses y.get((i, g), 0) instead of y[i, g] to account
-    # for this -- a missing entry behaves exactly like a variable pinned to
-    # 0, which is what it always was.
-    # Q/P (right below) are NOT pruned the same way: they're indexed by
-    # (group, attribute-value), and there's no structural reason a group
-    # can't contain a student with any given attribute value -- only
-    # section availability constrains who ends up where, so there's no
-    # analogous "impossible" (group, attribute) pair to skip.
+    # y[i, g] is sparse: only created for (type, group) pairs the type is
+    # actually available for (a (type, group) pair a type isn't available
+    # for would just get constrained to 0 anyway -- skipping creation
+    # entirely gives CP-SAT a strictly smaller model for free). Everywhere
+    # below that indexes a possibly-missing pair uses y.get((i, g), 0)
+    # instead of y[i, g], which behaves exactly like a variable pinned to 0.
+    # Q/P (below) aren't pruned the same way: they're indexed by (group,
+    # attribute-value), and any group can hold any attribute value -- only
+    # section availability restricts who goes where, not attributes.
     if modules:
         G_d = mp["G_d"]
         group_section = {g: d for d, gs in G_d.items() for g in gs}
@@ -502,30 +485,19 @@ def _add_constraints(model, mp, v, disabled):
 
         for d in D:
             for i in T:
-                # Vacuous (0 <= 0) whenever a[i][d] == 0 -- every y[i, g]
-                # for g in G_d[d] is already absent from y in that case (see
-                # _build_vars() above), so this only does real work for the
-                # eligible (a[i][d] == 1) case. There it has to bound a
-                # type's *total* headcount across every one of that
-                # section's groups by that type's own headcount, not by
-                # upper_number (one group's worth): a type with more
-                # students than fit in a single group is completely normal
-                # -- it just spans several of that section's groups, the
-                # same way headcount conservation already lets it span
-                # several groups overall. Using upper_number here used to
-                # cap it at one group's worth instead, which made the whole
-                # model spuriously infeasible for any type larger than
-                # upper_number the moment it was placed into a section at
-                # all (see test_model_solving.py's regression test for a
-                # minimal repro). Found while investigating why the demo
-                # roster in docs/ARCHITECTURE.md's Demo section left so many
-                # students outside their ranked topics: with this bug, a type
-                # that outgrows one group can get silently shut out of an
-                # entire section it's actually available for, forcing it
-                # toward whatever section/topic combination it *can* still fit
-                # into a single group of -- not a true topic-capacity shortage,
-                # just this bound throwing away otherwise perfectly good,
-                # on-preference placements.
+                # Vacuous (0 <= 0) when a[i][d] == 0 (see _build_vars()).
+                # When eligible, bounds a type's total headcount across that
+                # section's groups by its own headcount, not by
+                # upper_number (one group's worth): a type bigger than one
+                # group normally spans several of that section's groups, the
+                # same way it can span several groups overall. Using
+                # upper_number here used to cap it at one group's worth,
+                # making the model spuriously infeasible for any type larger
+                # than upper_number placed in a section at all -- see
+                # test_model_solving.py's regression test. Found while
+                # investigating why the demo roster left students outside
+                # their ranked topics: the bug shut such a type out of a
+                # section it was actually available for.
                 model.Add(
                     sum(y.get((i, g), 0) for g in G_d[d])
                     <= students_types[i]["students"] * int(students_types[i]["a"][d])
@@ -817,21 +789,16 @@ def _solve_full(params):
     search_budget = max(_MIN_SEARCH_SECONDS, total_budget - elapsed_before_search)
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = search_budget
-    # No relative_gap_limit override (CP-SAT's own default is already ~0,
-    # i.e. proven optimal): search_budget above already bounds wall-clock
-    # on its own, so a looser gap doesn't buy any extra safety, it only
-    # buys a worse answer. This used to be set to 0.01 -- checked while
-    # investigating a demo roster where the Results panel's #1-choice rate
-    # (computed from run_model()'s own solve) and the Sensitivity panel's
-    # baseline (sensitivity_report() below, which was never loosened) came
-    # out 25 points apart on the exact same request. The 1% objective slack
-    # was enough to let a solution with several students on their #2
-    # choice score as "OPTIMAL", even though the true optimum -- reachable
-    # in well under a second, nowhere near search_budget -- put nearly all
-    # of them on their #1. A roster large enough that 0% actually costs
-    # meaningful time still can't run over: search_budget stops it exactly
-    # like before, it just reports FEASIBLE (best found) instead of
-    # OPTIMAL in that case, same as any other time-limited CP-SAT solve.
+    # No relative_gap_limit override -- CP-SAT's own default is already
+    # ~0 (proven optimal), and search_budget above already bounds
+    # wall-clock, so a looser gap only buys a worse answer, not safety.
+    # Used to be 0.01: that let solutions with students on their #2 choice
+    # score "OPTIMAL" even though the true optimum (found in under a
+    # second) put nearly all of them on #1 -- a 25-point gap between the
+    # Results panel and the never-loosened Sensitivity baseline on the same
+    # request. A roster where 0% genuinely costs time still can't run over;
+    # it just reports FEASIBLE instead of OPTIMAL, same as any time-limited
+    # CP-SAT solve.
     solver.parameters.num_search_workers = 8
     status = solver.Solve(model)
     return solver, ctx, status
@@ -839,18 +806,13 @@ def _solve_full(params):
 
 def run_model(params):
     # params["tmax"] is the *total* wall-clock budget for this call (see
-    # views.py's SYNC_SOLVE_TMAX_SECONDS / _SYNC_TIME_LIMIT_SAFETY_FACTOR),
-    # not just the CP-SAT search -- callers on a hard request deadline
-    # (Lambda behind API Gateway's 29s cap) need the whole thing bounded,
-    # model-building and greedy-hint computation included. Those two steps
-    # are deterministic (no internal time limit to set), so the fix is to
-    # measure how long they actually took and give the solver whatever's
-    # left of the budget, instead of always handing it the full amount on
-    # top. A 50-student/4-group roster was observed taking ~29s total on
-    # dev hardware with the old fixed-search-budget code, even though the
-    # CP-SAT search itself never exceeded its 20s cap -- build+hint alone
-    # accounted for the rest. See docs/ARCHITECTURE.md. (Now lives in
-    # _solve_full() above, shared with sensitivity_report().)
+    # views.py's SYNC_SOLVE_TMAX_SECONDS), not just the CP-SAT search --
+    # Lambda's 29s cap needs model-building and greedy-hint time bounded
+    # too. Those steps are deterministic, so _solve_full() measures how
+    # long they took and gives the solver whatever's left, instead of the
+    # full budget on top (a 50-student roster was seen taking ~29s total
+    # with the old fixed-budget code, even though CP-SAT itself never hit
+    # its 20s cap). See docs/ARCHITECTURE.md.
     solver, ctx, status = _solve_full(params)
     G, T = ctx["G"], ctx["T"]
     students_types, priority = ctx["students_types"], ctx["priority"]

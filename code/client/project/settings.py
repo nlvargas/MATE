@@ -8,89 +8,56 @@ PROJECT_DIR = os.path.dirname(__file__)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # -------------------- Local secrets (.env) --------------------
-# Django's SECRET_KEY and the PUC cluster SSH credentials used by
-# backend/utils.py's upload_parms() used to be hardcoded in source. They now
-# live in code/client/.env instead, which .gitignore already excludes (see
-# the repo-root .gitignore's bare ".env" entry -- matches at any depth).
-# django-environ populates os.environ from that file if it exists, so both
-# this module (via env(...)) and backend/utils.py (via os.environ.get(...))
-# can read the same values. See .env.example for the keys this file expects
-# and to regenerate it.
+# Secrets (SECRET_KEY, cluster SSH creds) live in code/client/.env, gitignored,
+# not hardcoded. django-environ loads it into os.environ, so both env(...)
+# here and os.environ.get(...) in backend/utils.py read the same values.
+# See .env.example for the expected keys.
 env = environ.Env()
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 # -------------------- Optimizer solver configuration --------------------
-# optimization_cpsat.py (the default and only in-request backend, OR-Tools
-# CP-SAT) lives in backend/ and imports its own local model_common.py,
-# right next to it -- code/server (the Gurobi backend that runs standalone
-# on the cluster, reached only by SSH job submission -- see
-# backend/utils.py's upload_parms()) is a separate, independently deployed
-# project this one never imports from. See model_common.py's module
-# docstring for why that copy is duplicated by hand rather than shared.
+# optimization_cpsat.py (OR-Tools CP-SAT, the only in-request backend) lives
+# in backend/ with its own local model_common.py. code/server (Gurobi, on
+# the cluster, reached only via SSH job submission -- backend/utils.py's
+# upload_parms()) is a separate project this one never imports from.
 
-# Problems at or below this many *estimated decision variables* (see
-# model_common.estimate_variable_count()) are solved synchronously inside
-# the web request and the result is shown in the UI immediately. Bigger
-# ones are handed off to the cluster as before, with results emailed later
-# once done. SYNC_SOLVE_TMAX_SECONDS bounds how long the synchronous solve
-# is allowed to run -- keep it well under your web server's request
-# timeout (e.g. API Gateway / Lambda hard-caps a request at 29s).
-#
-# frontend/src/containers/CreateGroups.js shows a "this will run sync/async"
-# indicator on the Configure & run screen based on this same number -- it
-# reads it from window.__MATE_CONFIG__ (injected into index.html by
-# frontend/views.py's index(), which passes this exact setting as template
-# context) rather than hardcoding its own copy, so there's nothing to keep
-# in sync by hand here: changing SYNC_SOLVE_MAX_VARIABLES (or
-# MATE_SYNC_MAX_VARIABLES) changes what the UI shows too, automatically, on
-# the next page load -- no frontend rebuild required.
-#
-# This used to be a raw student-count cap (SYNC_SOLVE_MAX_STUDENTS,
-# default 100) -- replaced because student count alone is a poor proxy for
-# how hard a roster actually is to solve: the same headcount can collapse
-# into very different numbers of distinct student types, topics, and
-# sections, which is what actually drives the model's size and solve time.
-# 4000 is a measured, not a guessed, number -- see docs/ARCHITECTURE.md's
-# note on this threshold: a 14-point benchmark correlating CP-SAT's own
-# reported variable count against real solve time (production solver
-# settings, greedy hint applied) found solves reliably finishing well
-# inside a 30-60s budget up to a few thousand variables, with solve time
-# climbing sharply beyond that. Bump this only after re-benchmarking
-# against your actual configured Lambda memory/CPU and roster complexity.
+# Rosters at or below this many *estimated decision variables* (see
+# model_common.estimate_variable_count()) solve synchronously in the web
+# request; bigger ones go to the cluster, results emailed later.
+# SYNC_SOLVE_TMAX_SECONDS bounds the synchronous solve -- keep it under your
+# server's request timeout (Lambda/API Gateway hard-caps a request at 29s).
+# frontend/src/containers/CreateGroups.js reads this same number via
+# window.__MATE_CONFIG__ (injected by frontend/views.py's index()) to show
+# a sync/async indicator, so there's nothing to keep in sync by hand.
+# 4000 is measured, not guessed -- see docs/ARCHITECTURE.md's benchmark
+# correlating CP-SAT's own variable count against real solve time. Re-bench
+# before bumping it, against your actual Lambda memory/CPU.
 SYNC_SOLVE_MAX_VARIABLES = int(os.environ.get("MATE_SYNC_MAX_VARIABLES", 4000))
 SYNC_SOLVE_TMAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_SECONDS", 20))
 
-# The person running a sync solve can now choose their own time budget (see
-# the slider on the Configure & run screen, CreateGroups.js) instead of
-# always getting the fixed SYNC_SOLVE_TMAX_SECONDS above -- that setting is
-# now just the *default* the slider starts at. Whatever the client sends is
-# clamped server-side to [SYNC_SOLVE_TMAX_MIN_SECONDS,
-# SYNC_SOLVE_TMAX_MAX_SECONDS] before it's ever handed to the solver (see
-# views.run_model()), so a tampered or stale client can't ask for more time
-# than this deployment allows -- the ceiling still has to leave margin under
-# the same API Gateway / Lambda 29s hard cap SYNC_SOLVE_TMAX_SECONDS's own
-# comment above describes.
+# The Configure & run screen's slider lets the user pick their own time
+# budget instead of always using SYNC_SOLVE_TMAX_SECONDS (now just the
+# slider's default). views.run_model() clamps whatever the client sends to
+# [SYNC_SOLVE_TMAX_MIN_SECONDS, SYNC_SOLVE_TMAX_MAX_SECONDS] before handing
+# it to the solver, so a tampered/stale client can't exceed this deployment's
+# cap -- the ceiling still needs margin under the 29s limit noted above.
 SYNC_SOLVE_TMAX_MIN_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_MIN_SECONDS", 5))
 SYNC_SOLVE_TMAX_MAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_MAX_SECONDS", 25))
 
 # -------------------- Cluster access gate (Microsoft sign-in) --------------------
-# The sync/CP-SAT path above is open to anyone -- it's free, open-source,
-# and runs on this app's own Lambda. The *cluster* path (backend/views.py's
-# large-roster branch, upload_parms()) spends a shared, licensed resource
-# (the PUC cluster's Gurobi seat and compute), so it's gated behind sign-in
-# with a uc.cl/ing.puc.cl account. See backend/msft_auth.py's module
-# docstring for what this needs on the Azure side (an app registration --
-# can't be done from here) and why the domain check happens here at the
-# application level rather than via Azure tenant restriction.
+# The sync/CP-SAT path is open to anyone (free, open-source, runs on this
+# app's own Lambda). The *cluster* path spends a shared, licensed resource
+# (the PUC cluster's Gurobi seat/compute), so it's gated behind sign-in with
+# a uc.cl/ing.puc.cl account -- see backend/msft_auth.py's module docstring
+# for the Azure app registration this needs and why the domain check lives
+# here rather than in Azure tenant restriction.
 MATE_ALLOWED_EMAIL_DOMAINS = os.environ.get("MATE_ALLOWED_EMAIL_DOMAINS", "uc.cl,ing.puc.cl")
 MS_CLIENT_ID = os.environ.get("MS_CLIENT_ID")
 MS_CLIENT_SECRET = os.environ.get("MS_CLIENT_SECRET")
 MS_AUTHORITY = os.environ.get("MS_AUTHORITY", "https://login.microsoftonline.com/organizations")
-# Must exactly match a Redirect URI registered on the Azure app (OAuth
-# redirect URIs are matched literally, not by prefix) -- register both this
-# local-dev default and your deployed .../dev/auth/callback URL there, and
-# set this env var per-environment (local .env vs. Lambda env vars) to
-# whichever one applies. See README's Environment variables section.
+# Must exactly match a Redirect URI registered on the Azure app (matched
+# literally, not by prefix). Set per-environment (local .env vs. Lambda env
+# vars) -- see README's Environment variables section.
 MS_REDIRECT_URI = os.environ.get("MS_REDIRECT_URI", "http://localhost:8000/dev/auth/callback")
 
 # django.contrib.sessions defaults to DB-backed sessions, which can't work
@@ -118,13 +85,11 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", default="django-insecure-change-me-see-env
 # DJANGO_DEBUG=0 explicitly if it relies on the DEBUG=False branch.
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") not in ("0", "false", "False", "")
 
-# The placeholder above is fine for local dev (DEBUG=True, see README's
-# "Running locally") but must never be the *real* key -- SESSION_ENGINE is
-# signed_cookies (no server-side session store), so SECRET_KEY is what
-# actually stops someone from forging a session claiming an allowed uc.cl
-# email (see backend/msft_auth.py's session_email_allowed()). Fail loudly at
-# import time rather than silently running production on a public, well-known
-# key.
+# Fine as a placeholder for local dev, but must never be the *real* key --
+# SESSION_ENGINE is signed_cookies (no server-side session store), so
+# SECRET_KEY is what stops someone forging a session claiming an allowed
+# uc.cl email (see backend/msft_auth.py's session_email_allowed()). Fail
+# loudly at import time rather than silently running on a public key.
 _DEFAULT_SECRET_KEY = "django-insecure-change-me-see-env-example"
 if not DEBUG and SECRET_KEY == _DEFAULT_SECRET_KEY:
     raise ImproperlyConfigured(
