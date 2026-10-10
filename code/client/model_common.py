@@ -10,17 +10,17 @@ gurobipy, and both solver backends stay guaranteed to agree on what a
 onto it.
 
 DUPLICATED ON PURPOSE, not shared via import: this exact file lives at
-both code/server/model_common.py (this copy, imported by optimization.py,
+both code/cluster/model_common.py (this copy, imported by optimization.py,
 the cluster/Gurobi backend) and code/client/model_common.py (imported by
 optimization_cpsat.py, the sync/CP-SAT backend). code/client is a
-self-contained Django project deployed on its own to AWS Lambda; code/server
+self-contained Django project deployed on its own to AWS Lambda; code/cluster
 runs standalone on the university Slurm cluster, reached only by SSH job
 submission (backend/utils.py's upload_parms()) -- there is no in-process
 import across that boundary in either direction, matching how
 optimization.py and optimization_cpsat.py are themselves two independently
 maintained implementations of the same formulation rather than one shared
 module. A change here has to be applied to both copies by hand; a test
-suite exists on each side (code/server/tests/, code/client/backend/tests/)
+suite exists on each side (code/cluster/tests/, code/client/backend/tests/)
 to catch the two drifting apart.
 """
 import math
@@ -121,7 +121,7 @@ def student_type_key(attributes, preferences, disponibilities):
     individual students into types in the first place), backend/views.py's
     _preference_outcome() (which looks a type back up from one of its own
     students' records for the Results screen's preference tally, sync
-    path), and code/server/utils.py's get_report() (same lookup, for the
+    path), and code/cluster/utils.py's get_report() (same lookup, for the
     emailed/offline path). Each was its own f"{attributes} - {preferences}
     - {disponibilities}" (or without disponibilities, when there are no
     modules) -- fragile because Python's dict repr follows insertion order,

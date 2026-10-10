@@ -1,4 +1,4 @@
-# Runtime dependencies for code/server -- the Gurobi backend (optimization.py)
+# Runtime dependencies for code/cluster -- the Gurobi backend (optimization.py)
 # that runs standalone on the cluster via main.py/run.sh, plus its own copy
 # of model_common.py's preprocessing (duplicated from code/client's copy by
 # hand, not imported -- see model_common.py's module docstring). gurobipy

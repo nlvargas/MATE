@@ -55,5 +55,5 @@ on cold start.
 ### Shared model code
 
 `code/client` is deployed on its own, so it carries its own copy of
-`model_common.py`, duplicated from `code/server`. If you change one copy,
+`model_common.py`, duplicated from `code/cluster`. If you change one copy,
 change the other and run both test suites before deploying.

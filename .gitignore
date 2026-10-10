@@ -33,8 +33,8 @@ node_modules/
 
 # Runtime scratch from actual solver runs -- real job params/results,
 # never portfolio content. Regenerated at runtime; keep the dirs via .gitkeep.
-code/server/outputs/*
-code/server/params/*
-!code/server/outputs/.gitkeep
-!code/server/params/.gitkeep
+code/cluster/outputs/*
+code/cluster/params/*
+!code/cluster/outputs/.gitkeep
+!code/cluster/params/.gitkeep
 

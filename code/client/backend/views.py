@@ -49,8 +49,8 @@ def _preference_outcome(sol, students_preferences_number):
     """
     Tally how many students landed in each preference rank (1st choice, 2nd
     choice, ..., or none of their ranked topics). Same job as
-    code/server/utils.py's get_report() (used for the emailed/offline
-    path) -- this view never imports that module (code/server is a
+    code/cluster/utils.py's get_report() (used for the emailed/offline
+    path) -- this view never imports that module (code/cluster is a
     separate, independently deployed project this one only ever talks to
     over SSH, never in-process -- see model_common.py's module docstring)
     -- but both key into `priority` the same way, via each side's own
@@ -80,7 +80,7 @@ def _run_solver(data):
     Import and call the CP-SAT solver's run_model(data). Imported lazily
     (not at module load time) so a missing ortools install only breaks the
     request that needed it, not the whole Django process. This app only
-    ever runs CP-SAT in-process -- the Gurobi backend (code/server/
+    ever runs CP-SAT in-process -- the Gurobi backend (code/cluster/
     optimization.py) is a separate, independently deployed project reached
     only by submitting a job to the cluster over SSH (see
     backend/utils.py's upload_parms()), never imported here.

@@ -119,7 +119,7 @@ roster sizes (the Preprocessing subsection just below explains why and
 how). Both solver backends -- CP-SAT for the sync/in-request path, Gurobi
 for the async/cluster path -- implement the identical formulation below,
 each in its own independently deployed codebase (`code/client` and
-`code/server` respectively): they never import from each other, and
+`code/cluster` respectively): they never import from each other, and
 `model_common.py`, the piece both share conceptually, is duplicated by
 hand rather than literally shared (see that file's module docstring).
 

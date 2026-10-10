@@ -1,7 +1,7 @@
 """
 CP-SAT (OR-Tools) implementation of the MATE group-assignment model.
 
-This mirrors code/server/optimization.py's Gurobi model exactly: same sets,
+This mirrors code/cluster/optimization.py's Gurobi model exactly: same sets,
 variables, constraints and objective, translated 1:1 to Google OR-Tools'
 CP-SAT solver. It's a drop-in replacement -- run_model(params) takes the
 same params dict optimization.run_model() does and returns the same

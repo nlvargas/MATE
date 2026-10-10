@@ -9,7 +9,7 @@ to point at (local `manage.py runserver`, or a real deployed URL after a
 `zappa update dev`), which CI can't provide -- CI's own coverage is this
 directory's own test_model_solving.py/test_postprocessing.py (calls
 optimization_cpsat.run_model() directly, no Django/HTTP in the loop) plus
-code/server/tests/ for model_common.py. This is the complementary check:
+code/cluster/tests/ for model_common.py. This is the complementary check:
 is the actual API, as deployed, still wired together correctly end to
 end. Run it yourself after any deploy:
 

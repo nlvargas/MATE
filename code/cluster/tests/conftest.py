@@ -1,22 +1,22 @@
 """
-Shared test scaffolding for code/server's tests: model_common.py (this
+Shared test scaffolding for code/cluster's tests: model_common.py (this
 suite's own copy, see its module docstring for why it's duplicated rather
 than shared with code/client) and optimization.py (Gurobi), the cluster
-backend that predates the Django app. code/server goes on sys.path so
+backend that predates the Django app. code/cluster goes on sys.path so
 tests can `import model_common` the same bare-name way optimization.py
-itself does; neither module is part of a `server` package as far as this
+itself does; neither module is part of a `cluster` package as far as this
 import is concerned. optimization_cpsat.py (the CP-SAT backend) has its
 own, separate test suite and conftest.py under code/client/backend/tests/
 -- this file never reaches into code/client, on purpose, matching the
-client/server independence model_common.py's docstring describes.
+client/cluster independence model_common.py's docstring describes.
 """
 import os
 import sys
 
 _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
-_SERVER_DIR = os.path.dirname(_TESTS_DIR)
-if _SERVER_DIR not in sys.path:
-    sys.path.insert(0, _SERVER_DIR)
+_CLUSTER_DIR = os.path.dirname(_TESTS_DIR)
+if _CLUSTER_DIR not in sys.path:
+    sys.path.insert(0, _CLUSTER_DIR)
 
 import pytest
 

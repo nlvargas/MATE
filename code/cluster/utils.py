@@ -19,7 +19,7 @@ def _load_env_file(path=None):
     ignored) so this module doesn't need a new pip dependency just to keep
     the Gmail sender credentials out of source. Unlike the Django app (which
     uses django-environ), this script runs standalone on the PUC cluster via
-    Slurm, so it loads code/server/.env itself the first time a send_* mail
+    Slurm, so it loads code/cluster/.env itself the first time a send_* mail
     helper is called. Values already present in os.environ (e.g. injected by
     the Slurm job) are never overwritten.
     """
@@ -44,7 +44,7 @@ def _mail_credentials():
     password = os.environ.get("MATE_GMAIL_PASSWORD")
     if not password:
         raise RuntimeError(
-            "MATE_GMAIL_PASSWORD is not set -- add it to code/server/.env "
+            "MATE_GMAIL_PASSWORD is not set -- add it to code/cluster/.env "
             "(see .env.example) before sending results by email."
         )
     return address, password

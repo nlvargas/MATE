@@ -121,7 +121,7 @@ pip install -r requirements-dev.txt
 pytest backend/tests/test_model_solving.py backend/tests/test_postprocessing.py -v
 
 # Cluster-side preprocessing tests
-cd ../server
+cd ../cluster
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 pytest tests/ -v

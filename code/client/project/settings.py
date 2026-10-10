@@ -17,7 +17,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 # -------------------- Optimizer solver configuration --------------------
 # optimization_cpsat.py (OR-Tools CP-SAT, the only in-request backend) lives
-# in backend/ with its own local model_common.py. code/server (Gurobi, on
+# in backend/ with its own local model_common.py. code/cluster (Gurobi, on
 # the cluster, reached only via SSH job submission -- backend/utils.py's
 # upload_parms()) is a separate project this one never imports from.
 

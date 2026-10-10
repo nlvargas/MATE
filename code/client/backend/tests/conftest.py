@@ -1,8 +1,8 @@
 """
 Shared test scaffolding for code/client/backend's optimization_cpsat.py
-tests: builds the same fixtures code/server/tests/conftest.py does, kept
+tests: builds the same fixtures code/cluster/tests/conftest.py does, kept
 as an independent copy rather than imported from there -- code/client and
-code/server are two separately deployed projects that never import each
+code/cluster are two separately deployed projects that never import each
 other's code, only ever communicating by submitting a job to the cluster
 over SSH (see model_common.py's module docstring). code/client/backend
 (where optimization_cpsat.py and its bare `from model_common import ...`
