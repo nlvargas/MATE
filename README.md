@@ -66,7 +66,8 @@ A few things make it practical at real class sizes:
 
 The full formulation (sets, variables, constraints and objective),
 benchmarks and design decisions are in
-**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**. A step-by-step
+[demo](docs/demo/README.md) shows a full run on a 48-student class.
 
 ## Stack
 
@@ -111,7 +112,9 @@ which predates Node 18's OpenSSL defaults. Use `npm run dev` instead of
 `npm run build` for an unminified build while developing; either way,
 rebuild after each frontend change.
 
-Then open <http://127.0.0.1:8000/>.
+Then open <http://127.0.0.1:8000/>. To try it with sample data, follow
+the [demo](docs/demo/README.md) and upload
+[`docs/demo/demo_roster.xlsx`](docs/demo/demo_roster.xlsx).
 
 ### 3. Tests
 
