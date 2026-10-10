@@ -112,7 +112,7 @@ which predates Node 18's OpenSSL defaults. Use `npm run dev` instead of
 `npm run build` for an unminified build while developing; either way,
 rebuild after each frontend change.
 
-Then open <http://127.0.0.1:8000/>. To try it with sample data, follow
+Then open <http://localhost:8000/>. To try it with sample data, follow
 the [demo](docs/demo/README.md) and upload
 [`docs/demo/demo_roster.xlsx`](docs/demo/demo_roster.xlsx).
 
@@ -137,7 +137,7 @@ deployed), there's an end-to-end smoke test that uploads a synthetic
 ```bash
 cd code/client
 pip install -r backend/tests/requirements-e2e.txt
-python3 backend/tests/e2e_smoke_test.py --base-url http://127.0.0.1:8000/dev
+python3 backend/tests/e2e_smoke_test.py --base-url http://localhost:8000/dev
 ```
 
 ## Deployment
