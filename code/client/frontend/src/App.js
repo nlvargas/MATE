@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { render } from "react-dom";
 import { CookiesProvider } from 'react-cookie';
-import axios from 'axios';
 
 import { I18nProvider, useI18n } from './i18n';
 import CreateTemplate from './containers/CreateTemplate';
@@ -27,19 +26,6 @@ function WizardForm() {
   const [step, setStep] = useState(STEP_SETUP);
   const [runResult, setRunResult] = useState(null);
   const [howOpen, setHowOpen] = useState(false);
-
-  // Cluster sign-in status (see backend/msft_auth.py) -- fetched once here,
-  // at the top of the tree, rather than separately in CreateGroups.js: the
-  // callback redirect lands back on this same page, and other screens may
-  // eventually want to know whether the user is signed in too.
-  const [auth, setAuth] = useState({ authenticated: false, email: null, configured: true, error: null });
-  useEffect(() => {
-    axios.get('/dev/auth/status')
-      .then((response) => setAuth(response.data))
-      // Sign-in status genuinely not mattering yet (e.g. offline/dev
-      // without the backend running) shouldn't block the rest of the app.
-      .catch(() => {});
-  }, []);
 
   // Keeps the document's declared language in sync with the EN/ES toggle --
   // templates/index.html ships a static lang="en" for the pre-render/SSR
@@ -77,8 +63,7 @@ function WizardForm() {
                               attributes={attributes} preferences={preferences} modules={modules}
                               preferencesNumber={preferencesNumber}
                               options={options} students={students}
-                              setRunResult={setRunResult} goResults={() => setStep(STEP_RESULTS)}
-                              auth={auth} />;
+                              setRunResult={setRunResult} goResults={() => setStep(STEP_RESULTS)} />;
       case STEP_RESULTS:
         return <Results runResult={runResult} attributes={attributes}
                          goConfigure={configureUnlocked ? () => setStep(STEP_CONFIGURE) : undefined} />;
@@ -102,16 +87,6 @@ function WizardForm() {
           <div className="brand-text"><b>{t("appName")}</b><span>{t("appTagline")}</span></div>
         </div>
         <div className="topbar-spacer" />
-        <div className="auth-status" style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 12, fontSize: 12.5 }}>
-          {auth.authenticated ? (
-            <>
-              <span className="mono" style={{ color: "var(--ink-faint)" }}>{tf("signedInAs", { email: auth.email })}</span>
-              <a className="btn btn-ghost btn-sm" href="/dev/auth/logout">{t("signOut")}</a>
-            </>
-          ) : (
-            <a className="btn btn-ghost btn-sm" href="/dev/auth/login">{t("signInMicrosoft")}</a>
-          )}
-        </div>
         <div className="lang-toggle" role="group" aria-label="Language">
           <button className={lang === "en" ? "active" : ""} onClick={() => setLang("en")}>EN</button>
           <button className={lang === "es" ? "active" : ""} onClick={() => setLang("es")}>ES</button>
@@ -153,6 +128,12 @@ function WizardForm() {
           {page()}
         </main>
       </div>
+
+      <footer className="app-footer">
+        {t("footerCredit")}{" "}
+        <a href="https://compile.cl" target="_blank" rel="noopener noreferrer">Compile</a>
+        {" "}· 2025
+      </footer>
 
       {howOpen && <HowItWorks onClose={() => setHowOpen(false)} />}
     </div>

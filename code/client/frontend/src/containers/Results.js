@@ -132,10 +132,11 @@ export default function Results({ runResult, attributes, goConfigure }) {
       .catch((err) => {
         // views.sensitivity() answers too-large/unsupported-solver with a
         // {error, message} body (same shape CreateGroups.js's own
-        // runModelRequest() already special-cases for the cluster-auth
-        // gate) -- surface that message when present instead of always
-        // falling back to the generic one, so e.g. a roster too large for
-        // the sync path tells the person that, not just "something broke".
+        // runModelRequest() already special-cases for run_model()'s
+        // too_large error) -- surface that message when present instead of
+        // always falling back to the generic one, so e.g. a roster too
+        // large for the sync path tells the person that, not just
+        // "something broke".
         const message = err.response && err.response.data && err.response.data.message;
         setSensitivity({ error: true, message });
       });

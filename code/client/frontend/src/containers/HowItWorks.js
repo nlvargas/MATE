@@ -158,7 +158,6 @@ export default function HowItWorks({ onClose }) {
 
           <h3>{t("howExecTitle")}</h3>
           <div className="modal-box">{t("howExec")}</div>
-          <div className="modal-cite">{t("howCite")}</div>
         </div>
       </div>
     </div>

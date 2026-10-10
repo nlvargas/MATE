@@ -7,14 +7,10 @@ from django.conf import settings
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from . import msft_auth
 from .utils import (
     create_students,
     create_parms,
     count_options,
-    upload_parms,
-    compressStringToBytes,
-    id_generator,
     student_type_key,
 )
 from model_common import estimate_variable_count
@@ -176,27 +172,17 @@ def run_model(request):
             "students_preferences_number": students_preferences_number,
         }, status=status.HTTP_200_OK)
 
-    # Large problem: hand off to the cluster -- a shared, licensed resource
-    # (Gurobi seat + compute on the PUC cluster), so this branch alone is
-    # gated on a signed-in @uc.cl/@ing.puc.cl session (see msft_auth.py).
-    # The sync path above never reaches this check: it's free, open-source,
-    # and runs on this app's own Lambda, so it stays open to anyone.
-    if not msft_auth.session_email_allowed(request.session):
-        return Response({
-            "error": "auth_required",
-            "message": (
-                "This roster is large enough to need the cluster. Sign in "
-                "with a uc.cl or ing.puc.cl account to submit it."
-            ),
-        }, status=status.HTTP_403_FORBIDDEN)
-
-    # Results are emailed once the Slurm job finishes.
-    ID = id_generator()
-    data["ID"] = ID
-    data_string = json.dumps(data)
-    compressed_data_string = compressStringToBytes(data_string)
-    upload_parms(compressed_data_string, ID)
-    return Response({"queued": True}, status=status.HTTP_200_OK)
+    # Large problem: this deployment only solves inline. Cluster submission
+    # (a shared, licensed Gurobi seat/compute on the PUC cluster) -- and the
+    # Microsoft sign-in that gated who could use it -- has been removed, so
+    # a roster past the inline cap is rejected rather than queued.
+    return Response({
+        "error": "too_large",
+        "message": (
+            "This roster is too large to solve on this deployment. Try "
+            "fewer students, groups, or sections."
+        ),
+    }, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])

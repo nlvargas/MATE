@@ -10,7 +10,7 @@ import { estimateModelSize } from '../estimateModelSize';
 
 export default function CreateGroups(props) {
   const { step, setStep, attributes, preferences, modules,
-          preferencesNumber, options, students, setRunResult, goResults, auth } = props;
+          preferencesNumber, options, students, setRunResult, goResults } = props;
   const { t, tf } = useI18n();
 
   const [cookies, setCookie] = useCookies(['groupsNumber', 'minStudents', 'maxStudents', 'email', 'maxSolveSeconds', 'usedPreferences', 'bounds', 'capacity', 'fixedDay', 'prefsBounds']);
@@ -357,12 +357,11 @@ export default function CreateGroups(props) {
         goResults();
       })
       .catch((err) => {
-        // The cluster-submission gate (backend/msft_auth.py) answers with
-        // this shape specifically so the UI can point at sign-in instead
-        // of showing a generic failure -- everything else still falls
-        // back to the generic message.
-        if (err.response && err.response.status === 403 && err.response.data && err.response.data.error === "auth_required") {
-          setRunError(t("clusterAuthRequired"));
+        // run_model() answers this shape specifically for a roster past
+        // the inline-solve cap (see backend/views.py), so the UI can show
+        // a clear reason instead of a generic failure.
+        if (err.response && err.response.status === 400 && err.response.data && err.response.data.error === "too_large") {
+          setRunError(t("rosterTooLarge"));
         } else {
           setRunError(t("uploadError"));
         }
@@ -372,13 +371,13 @@ export default function CreateGroups(props) {
       .finally(() => setRunning(false));
   }
 
-  // Small problems solve in-request; larger ones go to the cluster queue.
-  // This is a UI indicator (see the "Sync"/"Async" pills below), based on
-  // modelSize's estimated variable count -- the same basis the backend
-  // itself now routes on (see SYNC_SOLVE_MAX_VARIABLES's comment in
-  // project/settings.py). It can occasionally disagree with what the
-  // backend actually does, since modelSize is an approximation computed
-  // without a round-trip; the backend's own exact count
+  // Small problems solve in-request; larger ones are rejected as too big
+  // for this deployment (see backend/views.py's run_model() -- there's no
+  // cluster hand-off anymore). execPath === "async" here just means
+  // "over the cap", used below to show a blocking message instead of the
+  // solve-time slider. It can occasionally disagree with what the backend
+  // decides, since modelSize is an approximation computed without a
+  // round-trip; the backend's own exact count
   // (model_common.estimate_variable_count()) is what actually decides.
   // syncMaxVariables is read from window.__MATE_CONFIG__ (injected
   // server-side in index.html -- see frontend/views.py's index()) instead
@@ -552,10 +551,6 @@ export default function CreateGroups(props) {
         <div className="card">
           <div className="card-head"><h3>{t("execTitle")}</h3></div>
           <p className="card-sub" style={{ marginBottom: 8 }}>{t("execSub")}</p>
-          <div className="exec-toggle">
-            <div className={`exec-opt ${execPath === "sync" ? "active" : ""}`}>{t("execSync")}</div>
-            <div className={`exec-opt ${execPath === "async" ? "active" : ""}`}>{t("execAsync")}</div>
-          </div>
           {execPath === "sync" && (
             <div style={{ marginTop: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -567,18 +562,13 @@ export default function CreateGroups(props) {
                             ariaLabel={t("maxSolveTimeLabel")} />
             </div>
           )}
-          {execPath === "async" && !auth.authenticated && (
+          {execPath === "async" && (
             <div className="run-status warn" style={{ marginBottom: 10 }}>
-              {auth.configured ? t("clusterAuthRequired") : t("clusterAuthNotConfigured")}
-              {auth.configured && (
-                <div style={{ marginTop: 6 }}>
-                  <a className="btn btn-ghost btn-sm" href="/dev/auth/login">{t("signInMicrosoft")}</a>
-                </div>
-              )}
+              {t("rosterTooLarge")}
             </div>
           )}
           <button className="btn btn-primary" style={{ width: "100%", marginTop: 14 }}
-                  disabled={running || issues.length > 0 || (execPath === "async" && !auth.authenticated)}
+                  disabled={running || issues.length > 0 || execPath === "async"}
                   onClick={runModelRequest}>
             {running ? <Spinner label={t("running")} /> : t("runButton")}
           </button>

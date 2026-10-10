@@ -23,12 +23,13 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 # Rosters at or below this many *estimated decision variables* (see
 # model_common.estimate_variable_count()) solve synchronously in the web
-# request; bigger ones go to the cluster, results emailed later.
+# request; bigger ones are rejected as too large for this deployment (see
+# views.run_model()) -- there's no cluster hand-off anymore.
 # SYNC_SOLVE_TMAX_SECONDS bounds the synchronous solve -- keep it under your
 # server's request timeout (Lambda/API Gateway hard-caps a request at 29s).
 # frontend/src/containers/CreateGroups.js reads this same number via
-# window.__MATE_CONFIG__ (injected by frontend/views.py's index()) to show
-# a sync/async indicator, so there's nothing to keep in sync by hand.
+# window.__MATE_CONFIG__ (injected by frontend/views.py's index()) so
+# there's nothing to keep in sync by hand.
 # 4000 is measured, not guessed -- see docs/ARCHITECTURE.md's benchmark
 # correlating CP-SAT's own variable count against real solve time. Re-bench
 # before bumping it, against your actual Lambda memory/CPU.
@@ -44,21 +45,6 @@ SYNC_SOLVE_TMAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_SECONDS", 20))
 SYNC_SOLVE_TMAX_MIN_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_MIN_SECONDS", 5))
 SYNC_SOLVE_TMAX_MAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_MAX_SECONDS", 25))
 
-# -------------------- Cluster access gate (Microsoft sign-in) --------------------
-# The sync/CP-SAT path is open to anyone (free, open-source, runs on this
-# app's own Lambda). The *cluster* path spends a shared, licensed resource
-# (the PUC cluster's Gurobi seat/compute), so it's gated behind sign-in with
-# a uc.cl/ing.puc.cl account -- see backend/msft_auth.py's module docstring
-# for the Azure app registration this needs and why the domain check lives
-# here rather than in Azure tenant restriction.
-MATE_ALLOWED_EMAIL_DOMAINS = os.environ.get("MATE_ALLOWED_EMAIL_DOMAINS", "uc.cl,ing.puc.cl")
-MS_CLIENT_ID = os.environ.get("MS_CLIENT_ID")
-MS_CLIENT_SECRET = os.environ.get("MS_CLIENT_SECRET")
-MS_AUTHORITY = os.environ.get("MS_AUTHORITY", "https://login.microsoftonline.com/organizations")
-# Must exactly match a Redirect URI registered on the Azure app (matched
-# literally, not by prefix). Set per-environment (local .env vs. Lambda env
-# vars) -- see README's Environment variables section.
-MS_REDIRECT_URI = os.environ.get("MS_REDIRECT_URI", "http://localhost:8000/dev/auth/callback")
 
 # django.contrib.sessions defaults to DB-backed sessions, which can't work
 # here -- DATABASES = {} below, there's no database at all. Signed, itself-
@@ -87,9 +73,9 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "1") not in ("0", "false", "False", "")
 
 # Fine as a placeholder for local dev, but must never be the *real* key --
 # SESSION_ENGINE is signed_cookies (no server-side session store), so
-# SECRET_KEY is what stops someone forging a session claiming an allowed
-# uc.cl email (see backend/msft_auth.py's session_email_allowed()). Fail
-# loudly at import time rather than silently running on a public key.
+# SECRET_KEY is what stops someone forging or tampering with a session
+# cookie's contents. Fail loudly at import time rather than silently
+# running on a public key.
 _DEFAULT_SECRET_KEY = "django-insecure-change-me-see-env-example"
 if not DEBUG and SECRET_KEY == _DEFAULT_SECRET_KEY:
     raise ImproperlyConfigured(
@@ -98,10 +84,9 @@ if not DEBUG and SECRET_KEY == _DEFAULT_SECRET_KEY:
         "environment/.env before running with DEBUG off -- see .env.example."
     )
 
-# Comma-separated, same pattern as MATE_ALLOWED_EMAIL_DOMAINS above -- falls
-# back to the previously-hardcoded list (local dev hosts plus this
-# deployment's API Gateway hostname) so nothing breaks where the env var
-# isn't set yet.
+# Comma-separated -- falls back to the previously-hardcoded list (local dev
+# hosts plus this deployment's API Gateway hostname) so nothing breaks
+# where the env var isn't set yet.
 MATE_ALLOWED_HOST = os.environ.get(
     "MATE_ALLOWED_HOST",
     "127.0.0.1,0.0.0.0,localhost,my49ptyg5m.execute-api.us-east-2.amazonaws.com",
