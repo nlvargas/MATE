@@ -22,6 +22,7 @@
        changed via an env var without a frontend rebuild. -->
   <script>
     window.__MATE_CONFIG__ = {
+      apiBase: "{{ api_base|escapejs }}",
       syncMaxVariables: {{ sync_max_variables }},
       syncTmaxDefaultSeconds: {{ sync_tmax_default_seconds }},
       syncTmaxMinSeconds: {{ sync_tmax_min_seconds }},

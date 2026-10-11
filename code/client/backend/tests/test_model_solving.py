@@ -247,3 +247,59 @@ def test_greedy_hint_only_places_students_in_available_sections(params_factory, 
 
     mod2_groups = set(ctx["G_d"]["mod2"])
     assert not any(g in mod2_groups for (_i, g) in y_hint)
+
+
+# -------------------- sensitivity analysis --------------------
+
+def test_sensitivity_baseline_matches_the_main_solve(params_factory, student_type_factory):
+    # The baseline is solved the way run_model() solves (and every what-if
+    # trial is warm-started from it), so its "% on their #1 choice" has to
+    # agree with a plain run_model() of the same request. A cold 5s baseline
+    # once reported 54.8% against the Results panel's 93.7% on a large roster.
+    types = {
+        "T0": student_type_factory("T0", students=6, preferences={"1": "Math"}),
+        "T1": student_type_factory("T1", students=6, preferences={"1": "Physics"}),
+    }
+    params = params_factory(
+        students_types=types,
+        preferences={"Math": {"min": 0, "max": 2}, "Physics": {"min": 0, "max": 2}},
+        groups_number=2, lower_number=3, upper_number=9,
+    )
+    report = cpsat.sensitivity_report(params)
+
+    assert report["baseline_pct"] == 100.0
+    assert report["families"] == []
+
+
+# -------------------- optimality gap --------------------
+
+class _FakeSolver:
+    def __init__(self, objective, bound):
+        self._objective, self._bound = objective, bound
+
+    def ObjectiveValue(self):
+        return self._objective
+
+    def BestObjectiveBound(self):
+        return self._bound
+
+
+def test_optimality_gap_is_zero_for_a_proven_optimal_solve():
+    assert cpsat._optimality_gap_pct(_FakeSolver(100.0, 40.0), cpsat.cp_model.OPTIMAL) == 0.0
+
+
+def test_optimality_gap_for_a_time_limited_solve_is_relative_to_the_objective():
+    # Best solution costs 1000, proven lower bound is 900 -> within 10%.
+    assert cpsat._optimality_gap_pct(_FakeSolver(1000.0, 900.0), cpsat.cp_model.FEASIBLE) == 10.0
+
+
+def test_run_model_reports_a_gap(params_factory, student_type_factory):
+    types = {"T0": student_type_factory("T0", students=4, preferences={"1": "Math"})}
+    params = params_factory(
+        students_types=types, preferences={"Math": {"min": 0, "max": 1}},
+        groups_number=1, lower_number=1, upper_number=10,
+    )
+    sol = cpsat.run_model(params)
+
+    assert sol["factible"] is True
+    assert sol["gap"] == 0.0

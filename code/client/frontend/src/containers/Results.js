@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { apiUrl } from '../api';
 import XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { useI18n } from '../i18n';
@@ -20,7 +21,7 @@ function statusClass(statusName) {
 
 export default function Results({ runResult, attributes, goConfigure }) {
   const { t, tf } = useI18n();
-  const [sensitivity, setSensitivity] = useState(null); // null=not run, {loading:true}, {error:true}, or the /dev/sensitivity/ response
+  const [sensitivity, setSensitivity] = useState(null); // null=not run, {loading:true}, {error:true}, or the /sensitivity/ response
 
   if (!runResult) {
     return (
@@ -116,7 +117,7 @@ export default function Results({ runResult, attributes, goConfigure }) {
     saveAs(new Blob([wbout], { type: "application/octet-stream" }), "mate_results.xlsx");
   }
 
-  // requestBody is the exact body CreateGroups.js sent to /dev/run_model/
+  // requestBody is the exact body CreateGroups.js sent to /run_model/
   // for *this* result (see its runModelRequest()) -- sensitivity analysis
   // is "what if one bound on this request were relaxed", so it has to
   // replay the same body, not a freshly reconstructed one. Absent for a
@@ -127,7 +128,7 @@ export default function Results({ runResult, attributes, goConfigure }) {
   function runSensitivity() {
     if (!requestBody) return;
     setSensitivity({ loading: true });
-    axios.post('/dev/sensitivity/', requestBody)
+    axios.post(apiUrl('/sensitivity/'), requestBody)
       .then((response) => setSensitivity(response.data))
       .catch((err) => {
         // views.sensitivity() answers too-large/unsupported-solver with a
@@ -158,6 +159,11 @@ export default function Results({ runResult, attributes, goConfigure }) {
       <div className="page-head">
         <h2>{t("resultsTitle")}</h2>
         <p><span className={`badge badge-${statusClass(runResult.status)}`}>{runResult.status}</span></p>
+        {runResult.status !== "OPTIMAL" && typeof runResult.optimality_gap === "number" && (
+          <p className="card-sub" style={{ marginTop: 6 }}>
+            {tf("optimalityGapNote", { pct: runResult.optimality_gap.toFixed(runResult.optimality_gap < 10 ? 2 : 1) })}
+          </p>
+        )}
       </div>
 
       <div className="card">
@@ -176,7 +182,7 @@ export default function Results({ runResult, attributes, goConfigure }) {
         <p className="card-sub">{t("prefOutcomesSub")}</p>
         {Object.entries(outcome).map(([rank, count]) => (
           <div className="dist-row" key={rank}>
-            <div className="dist-topic">{rank === "none" ? "none" : tf("choiceN", { n: rank })}</div>
+            <div className="dist-topic">{rank === "none" ? t("outcomeNone") : tf("choiceN", { n: rank })}</div>
             <div className="dist-bar-line">
               <div className="dist-track">
                 <div className={`dist-fill ${rank === "none" ? "none" : "seg1"}`} style={{ width: `${(count / maxOutcome) * 100}%` }} />

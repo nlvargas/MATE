@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import axios from 'axios';
+import { apiUrl } from '../api';
 import { useI18n } from '../i18n';
 import Spinner from '../components/Spinner';
 
-// "Upload roster" step. Posts the filled-in template to /dev/upload/, then
+// "Upload roster" step. Posts the filled-in template to /upload/, then
 // shows a summary built entirely from what that endpoint actually returned
 // (options = per-attribute value counts, students = full roster) -- no
 // separate summary endpoint needed.
@@ -27,7 +28,7 @@ export default function UploadTemplate(props) {
     formData.append("file", selectedFile, selectedFile.name);
     setUploading(true);
     setError(null);
-    axios.post("/dev/upload/", formData)
+    axios.post(apiUrl("/upload/"), formData)
       .then((response) => {
         setOptions(JSON.parse(response.data.a));
         setStudents(JSON.parse(response.data.students));

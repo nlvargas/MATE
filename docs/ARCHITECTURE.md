@@ -98,13 +98,29 @@ solve time, using production solver settings (the greedy hint applied,
 the same relative optimality gap, 8 search workers) and generous time caps
 so genuine scaling was measured rather than an artificial cutoff. Solves
 stayed comfortably fast (well under a second to a few seconds) up to
-around 3,000–4,000 variables; past roughly 5,000–6,000, solve time became
+around 3,000-4,000 variables; past roughly 5,000-6,000, solve time became
 both much larger and much less predictable: two points with similar
 variable counts could differ by an order of magnitude in wall time, and
 several larger points never reached a proven-optimal solution inside a
-60–120s cap at all. 4,000 was chosen as the cutoff: comfortably below
-where solve time starts climbing sharply, with enough margin under the
-default 30–60s sync budget to absorb that variance.
+60-120s cap at all. That benchmark set the original cutoff at 4,000.
+
+The cutoff is now 15,000, raised after running a production-sized roster
+through the app: 809 students in 16 attribute combinations, 4 attributes,
+10 topics, 120 groups of 6 to 7, about 14,500 estimated variables. It
+solved to proven optimality in 7 to 8 seconds on a 4-core machine. Variable
+count is a proxy for difficulty, not a measure of it: that roster collapses
+into few student types, which keeps it easy, while a roster with many
+distinct types at the same count can be far harder. Re-measure on the real
+Lambda memory and CPU before relying on 15,000, and lower
+`MATE_SYNC_MAX_VARIABLES` if solves start missing the time budget.
+
+When the time budget runs out before CP-SAT proves optimality, the solve comes
+back as FEASIBLE instead of OPTIMAL, and the Results screen shows the
+optimality gap: |objective - best bound| / |objective|, in percent, read off
+the solver at the moment it stopped. It is measured on the solver's full
+objective (preference cost plus the balance penalty), so it bounds how far
+the answer could be from the best possible one, not the share of students
+who got their first choice.
 
 ## 4. The model
 
@@ -438,28 +454,41 @@ constraint family on every request would reintroduce the same wall-clock
 pressure that keeps the synchronous solve path time-limited in the first
 place.
 
-**Why the baseline gets its own solve, on identical settings to every
-trial.** The production solve is tuned for speed (a short time budget and
-a small relative optimality gap, chosen so it comfortably fits the
-synchronous request's own time limit) and can return a solution that's
-within a fraction of a percent of optimal on the *overall* objective while
-still being meaningfully worse on #1-choice placement specifically:
-preference priority and the balance penalty share one objective (the same
-$W \cdot z_{max} + W \cdot m_{max} + \sum_i N_i z_i$ from §4), and
-since the unranked-preference penalty is the same order of magnitude as
-the balance weight, a small optimality gap on a multi-thousand-point
-objective is easily enough slack to flip several students between rank 1
-and rank 2 without the solver ever being told to prefer one tied solution
-over another. Comparing a baseline solved that way against trials solved
-to a tighter tolerance would measure which solve happened to land on a
-better tied solution, not which constraint was actually binding, so the
-baseline is instead solved to full optimality, on the exact same settings
-as every family trial, so any reported gain reflects the family that was
-dropped and nothing else. Validated on a small synthetic roster with a
-deliberately tight attribute-balance bound: the two balance-bound families
-were correctly isolated as the costly ones, with every other family
-(group size, topic coverage, section capacity) reporting no meaningful
-gain.
+**How the baseline and the trials are solved.** The baseline is solved
+first, the same way the main solve is (same greedy hint, same solver
+settings, a bounded budget of its own), so the "% got their #1 choice" it
+reports is the number the Results screen already shows. Its solution is
+then handed to every what-if trial as a warm start. Dropping a constraint
+family only enlarges the feasible region, so the baseline assignment is
+still feasible in every trial: CP-SAT starts each one from a known-good
+incumbent and only has to search for improvements, instead of
+rediscovering a good assignment from scratch inside a short time limit.
+Each trial is also capped on its own, and the whole analysis stops starting
+new trials once it can no longer finish inside the request's wall-clock
+budget; families it didn't reach are simply not reported.
+
+This replaced an earlier design in which the baseline and every trial were
+cold, unhinted solves with the same short limit, chosen so they would all
+sit on identical footing. On a roster of about 800 students that backfired:
+a cold 5-second baseline reached only 54.8% of students on their #1
+choice against 93.7% in the Results panel, and the gains it reported were
+the distance between a bad cold solve and the relaxed one, not real
+findings. Warm-starting keeps the comparison honest (a trial can only match
+or beat the baseline it starts from) and makes the baseline agree with the
+main solve.
+
+Two caveats remain at that size. Preference priority and the balance
+penalty share one objective (the same
+$W \cdot z_{max} + W \cdot m_{max} + \sum_i N_i z_i$ from §4), so several
+different optimal assignments can differ by a few points of #1-choice share,
+and small gains (a point or two) are within that noise. And a roster with
+about 20 constraint families can't have all of them re-solved inside one
+request, so only the first few are tested.
+
+Validated on a small synthetic roster with a deliberately tight
+attribute-balance bound: the two balance-bound families were correctly
+isolated as the costly ones, with every other family (group size, topic
+coverage, section capacity) reporting no meaningful gain.
 
 ## 7. Demo
 

@@ -750,7 +750,14 @@ _MIN_SEARCH_SECONDS = 2.0
 # infeasibility search, and are deliberately separate constants (not reused)
 # so the two searches' budgets can be tuned independently later.
 _SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS = 5.0
-_SENSITIVITY_TOTAL_TIME_BUDGET_SECONDS = 20.0
+# The baseline is solved the same way run_model() solves (greedy hint,
+# search budget), on its own bounded budget; every trial is then warm-
+# started from that solution -- see sensitivity_report()'s docstring.
+_SENSITIVITY_BASELINE_TIME_LIMIT_SECONDS = 10.0
+# Wall-clock ceiling for the whole analysis (baseline + trials). Stays under
+# Lambda/API Gateway's 29s request cap: a trial is only started if it can
+# still finish inside this budget.
+_SENSITIVITY_TOTAL_TIME_BUDGET_SECONDS = 24.0
 
 
 def _solve_full(params):
@@ -804,6 +811,30 @@ def _solve_full(params):
     return solver, ctx, status
 
 
+def _optimality_gap_pct(solver, status):
+    """
+    Relative optimality gap of the solution CP-SAT returned, as a percentage
+    of the objective: how far the best solution found could still be from
+    the best possible one, given the lower bound the search proved before it
+    stopped. 0.0 when the solve ended OPTIMAL. For a FEASIBLE solve (the time
+    limit hit first) it is |objective - best bound| / |objective|. The
+    objective includes the balance penalty terms, so this is a gap on the
+    solver's full objective, not on the share of students on their #1 choice.
+    None if the solver can't report a bound.
+    """
+    if status == cp_model.OPTIMAL:
+        return 0.0
+    try:
+        objective = solver.ObjectiveValue()
+        bound = solver.BestObjectiveBound()
+    except Exception:
+        return None
+    if objective is None or bound is None:
+        return None
+    denominator = max(abs(objective), 1e-9)
+    return round(max(0.0, objective - bound) / denominator * 100.0, 2)
+
+
 def run_model(params):
     # params["tmax"] is the *total* wall-clock budget for this call (see
     # views.py's SYNC_SOLVE_TMAX_SECONDS), not just the CP-SAT search --
@@ -838,6 +869,7 @@ def run_model(params):
         "priority": priority,
         "status": solver.StatusName(status),
         "causes": causes,
+        "gap": _optimality_gap_pct(solver, status) if factible else None,
     }
 
 
@@ -897,30 +929,21 @@ def sensitivity_report(params):
     change and an attribute-balance change aren't otherwise comparable),
     unlike an internal objective score.
 
-    IMPORTANT: the baseline solve here is deliberately its OWN solve, on
-    the exact same solver settings (a fixed trial time limit, default
-    relative_gap_limit of 0) as every family trial below -- NOT a call to
-    run_model()/_solve_full(), even though that would also produce a
-    "baseline" result. Comparing an already-solved baseline against trials
-    solved on different settings produced a real bug during development
-    here: back when run_model()'s sync path traded a bit of accuracy for
-    headroom under API Gateway's 29s cap (a 0.01 relative_gap_limit -- see
-    _solve_full()'s comment for why that traded away more than it bought
-    and is gone now), every family, including ones that plainly shouldn't
-    matter, showed the exact same suspiciously-round gain against that
-    looser baseline -- an artifact of the tolerance mismatch, not a
-    genuine finding. Solving baseline and every trial the same way (see
-    solve_variant() below) closes that gap: any difference reported now
-    reflects the family that was dropped, not which solve happened to
-    land on a better tied solution. Kept as its own solve rather than
-    reusing run_model()'s result even now that both use the same gap:
-    sensitivity_report() is a separate on-demand request from the Results
-    screen, fired well after run_model() already finished and returned
-    (see this function's "Meant to run as a separate..." note below), so
-    there's no live run_model() result sitting around to reuse -- and the
-    baseline still has to run on the same trial time limit as its own
-    family trials below, not run_model()'s search budget, for the same
-    reason every trial has to match the baseline.
+    IMPORTANT: every what-if trial is warm-started from the baseline's
+    solution. The baseline is solved first, exactly the way run_model()
+    solves (_solve_full(): same greedy hint, same solver settings), on its
+    own bounded budget (_SENSITIVITY_BASELINE_TIME_LIMIT_SECONDS), so its
+    "% got their #1 choice" is the same number the Results panel shows.
+    Its y[]/w[] values then go into each trial as a complete hint. Dropping
+    a family only relaxes the feasible region, so the baseline solution is
+    still feasible in every trial: CP-SAT starts from it and only has to
+    look for improvements, instead of rediscovering a good assignment from
+    scratch inside a short trial limit. Trials are built with the same
+    symmetry-breaking setting as the baseline so the hint satisfies those
+    constraints as well. (Previously the baseline and every trial were
+    cold, unhinted solves of 5s each. On a roster of ~800 students the cold
+    baseline reached 54.8% of students on their #1 choice against 93.7% in
+    the Results panel, and the analysis ran out of time after one family.)
 
     Unlike the infeasibility deletion filter, dropping one family from an
     already-feasible model can only relax its feasible region -- it can
@@ -951,34 +974,52 @@ def sensitivity_report(params):
         priority = compute_priority(params["students_types"], G_t)
         precomputed_sets = (G, G_t, G_d, G_td, priority)
 
+        started = time.monotonic()
+
+        # Baseline: the same solve run_model() does, on a bounded budget.
+        # _solve_full() reads its budget from params["tmax"] (minutes, scaled
+        # by 0.90*60 -- see its body), so give it a copy with that set.
+        baseline_params = dict(params)
+        baseline_params["tmax"] = _SENSITIVITY_BASELINE_TIME_LIMIT_SECONDS / (0.90 * 60)
+        baseline_solver, baseline_ctx, baseline_status = _solve_full(baseline_params)
+        if baseline_status not in FACTIBLE_STATUSES:
+            return {"baseline_pct": None, "families": []}
+        baseline_share = _top_choice_share(baseline_solver, baseline_ctx)
+
+        # The baseline's solution, as a hint for every trial below.
+        hint_y = {key: baseline_solver.Value(var) for key, var in baseline_ctx["y"].items()}
+        hint_w = {g: baseline_solver.Value(var) for g, var in baseline_ctx["w"].items()}
+
         def solve_variant(disabled):
             """
-            Build and solve one variant (baseline when `disabled` is empty,
-            a what-if trial otherwise) on identical solver settings -- see
-            this function's docstring for why that identical-footing
-            comparison matters. Deliberately doesn't use _greedy_hint()
-            either: a hint computed for the *full* model could bias a
-            disabled-family trial toward the baseline's own solution
-            shape, working against the point of asking "what changes if
-            this family is gone".
+            Build and solve one what-if trial (`disabled` is the family
+            left out), warm-started from the baseline solution. Relaxing a
+            family can't make that solution infeasible, so CP-SAT begins
+            with a known-good incumbent and only searches for something
+            better within the trial time limit.
             """
-            model, ctx = _build_model(params, disabled=disabled, precomputed_sets=precomputed_sets)
+            model, ctx = _build_model(
+                params, disabled=disabled, symmetry_break=_ENABLE_SYMMETRY_BREAKING,
+                precomputed_sets=precomputed_sets,
+            )
+            for key, value in hint_y.items():
+                var = ctx["y"].get(key)
+                if var is not None:
+                    model.AddHint(var, value)
+            for g, value in hint_w.items():
+                var = ctx["w"].get(g)
+                if var is not None:
+                    model.AddHint(var, value)
             solver = cp_model.CpSolver()
             solver.parameters.max_time_in_seconds = _SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS
             solver.parameters.num_search_workers = 8
             status = solver.Solve(model)
             return solver, ctx, status
 
-        started = time.monotonic()
-        baseline_solver, baseline_ctx, baseline_status = solve_variant(frozenset())
-        if baseline_status not in FACTIBLE_STATUSES:
-            return {"baseline_pct": None, "families": []}
-        baseline_share = _top_choice_share(baseline_solver, baseline_ctx)
-
         families = _candidate_families(params)
         out = []
         for key, label in families:
-            if time.monotonic() - started > _SENSITIVITY_TOTAL_TIME_BUDGET_SECONDS:
+            if time.monotonic() - started + _SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS > _SENSITIVITY_TOTAL_TIME_BUDGET_SECONDS:
                 # Out of time -- stop testing; an untested family is simply
                 # not reported, same "under-report, never fabricate" rule
                 # find_infeasibility_causes() follows.

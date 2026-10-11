@@ -59,6 +59,8 @@ const STR = {
     bySection: "Sections -- available",
     preferenceDistribution: "Topics -- preference distribution",
     choiceN: "Choice #{n}",
+    outcomeNone: "None",
+    optimalityGapNote: "Optimality gap: {pct}%",
 
     configureTitle: "Configure & run",
     configureHelp: "Set group size and, for each parameter, how tightly it should be enforced. The panel on the right updates as you go.",
@@ -207,6 +209,8 @@ const STR = {
     bySection: "Secciones -- disponibilidad",
     preferenceDistribution: "Temas -- distribución de preferencias",
     choiceN: "Preferencia #{n}",
+    outcomeNone: "Ninguna",
+    optimalityGapNote: "Brecha de optimalidad: {pct}%",
 
     configureTitle: "Configurar y ejecutar",
     configureHelp: "Define el tamaño de grupo y, para cada parámetro, qué tan estricto debe ser. El panel derecho se actualiza mientras editas.",

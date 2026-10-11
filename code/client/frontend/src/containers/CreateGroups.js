@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
+import { apiUrl } from '../api';
 import { useCookies } from 'react-cookie';
 import { useI18n } from '../i18n';
 import DualSlider from '../components/DualSlider';
@@ -339,14 +340,14 @@ export default function CreateGroups(props) {
     setRunning(true);
     setRunError(null);
     setRunResult(null);
-    axios.post('/dev/run_model/', body)
+    axios.post(apiUrl('/run_model/'), body)
       .then((response) => {
         setRunResult({
           ...response.data,
           _context: {
             students: totalStudents, groups: groupsNumber, min: minStudents, max: maxStudents, email,
             // Kept so Results.js can re-run the same roster/settings through
-            // /dev/sensitivity/ on demand (see its Sensitivity card) without
+            // /sensitivity/ on demand (see its Sensitivity card) without
             // the parent needing to separately track or re-derive the body
             // this run already sent -- the sensitivity analysis is defined
             // as "what if one bound on *this* request were relaxed", so it
@@ -384,7 +385,7 @@ export default function CreateGroups(props) {
   // of a second hardcoded copy of that number, so this can never silently
   // drift from what the backend will actually do; the fallback below only
   // matters if this page were ever served without going through that view.
-  const syncMaxVariables = window.__MATE_CONFIG__?.syncMaxVariables ?? 4000;
+  const syncMaxVariables = window.__MATE_CONFIG__?.syncMaxVariables ?? 15000;
   const execPath = modelSize.variablesEstimate > syncMaxVariables ? "async" : "sync";
 
   return (

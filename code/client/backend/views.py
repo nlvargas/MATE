@@ -168,6 +168,7 @@ def run_model(request):
             "status": sol.get("status"),
             "solve_time": solve_time,
             "groups": groups,
+            "optimality_gap": sol.get("gap"),
             "preference_outcome": _preference_outcome(sol, students_preferences_number),
             "students_preferences_number": students_preferences_number,
         }, status=status.HTTP_200_OK)

@@ -30,10 +30,15 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 # frontend/src/containers/CreateGroups.js reads this same number via
 # window.__MATE_CONFIG__ (injected by frontend/views.py's index()) so
 # there's nothing to keep in sync by hand.
-# 4000 is measured, not guessed -- see docs/ARCHITECTURE.md's benchmark
-# correlating CP-SAT's own variable count against real solve time. Re-bench
-# before bumping it, against your actual Lambda memory/CPU.
-SYNC_SOLVE_MAX_VARIABLES = int(os.environ.get("MATE_SYNC_MAX_VARIABLES", 4000))
+# 15000 covers the production-sized roster used to validate this change (809
+# students, 4 attributes, 10 topics, ~14,500 estimated variables, solved to
+# proven optimality in ~8s on a 4-core machine) -- see docs/ARCHITECTURE.md's
+# note on the threshold. The estimate counts variables, not difficulty: a
+# roster with many distinct student types can be much harder than one with
+# few at the same count, so re-measure on your actual Lambda memory/CPU
+# before relying on it, and lower it via MATE_SYNC_MAX_VARIABLES if solves
+# start missing the time budget.
+SYNC_SOLVE_MAX_VARIABLES = int(os.environ.get("MATE_SYNC_MAX_VARIABLES", 15000))
 SYNC_SOLVE_TMAX_SECONDS = int(os.environ.get("MATE_SYNC_TMAX_SECONDS", 20))
 
 # The Configure & run screen's slider lets the user pick their own time
@@ -65,10 +70,10 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", default="django-insecure-change-me-see-env
 
 # DJANGO_DEBUG unset (or any value other than "0"/"false") => DEBUG=True.
 # Local `runserver` needs DEBUG=True: project/urls.py only mounts backend
-# routes under '/dev/' (matching the frontend's hardcoded axios paths) when
-# DEBUG is True -- in the deployed Lambda "dev" stage that same prefix comes
-# from the API Gateway stage name instead, so that deployment should set
-# DJANGO_DEBUG=0 explicitly if it relies on the DEBUG=False branch.
+# routes under '/dev/' when DEBUG is True. The frontend learns that prefix
+# from frontend/views.py's _api_base() (window.__MATE_CONFIG__.apiBase), so
+# the deployed Lambda should set DJANGO_DEBUG=0: its routes then live at the
+# root of the custom domain, and at the stage name on the execute-api URL.
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") not in ("0", "false", "False", "")
 
 # Fine as a placeholder for local dev, but must never be the *real* key --
