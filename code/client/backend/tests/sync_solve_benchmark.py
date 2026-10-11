@@ -42,7 +42,7 @@ from backend import views
 
 # Diversity chosen to avoid model_common.get_min_capacity() collapsing a
 # large roster into fewer distinct student "types" than students -- see
-# this session's ARCHITECTURE.md note. 3 attributes x 3 values, 8 topics
+# docs/TECHNICAL_OVERVIEW.md. 3 attributes x 3 values, 8 topics
 # ranked 3 deep, 3 sections with independent 80% availability.
 ATTRS = {"A1": ["a", "b", "c"], "A2": ["x", "y", "z"], "A3": ["p", "q", "r"]}
 MODULES = ["Mon 10:00", "Wed 15:00", "Fri 09:00"]

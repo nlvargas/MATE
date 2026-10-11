@@ -101,7 +101,7 @@ def run_model(request):
     # No closed-form pre-flight feasibility check runs here anymore: those
     # checks now run client-side, live, as the request is being configured
     # (see frontend/src/containers/CreateGroups.js's `issues` and
-    # docs/ARCHITECTURE.md's Pre-flight feasibility checks subsection for
+    # docs/TECHNICAL_OVERVIEW.md's Pre-flight feasibility checks subsection for
     # why -- catching an infeasible combination of parameters while it's
     # still being typed beats rejecting it after a round-trip). A request
     # that reaches this view has already passed those checks in the UI

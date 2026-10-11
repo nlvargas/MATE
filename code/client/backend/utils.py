@@ -216,7 +216,7 @@ def create_attributes(data):
         for opt in data["options"][attr]:
             # Keyed by "attr:opt" (the same attribute-value convention as
             # params["A"] / students_types_attr -- see create_students_types()
-            # above and docs/ARCHITECTURE.md section 4's `R` set), not by the
+            # above and docs/TECHNICAL_OVERVIEW.md section 4's `R` set), not by the
             # bare option string: two different attributes can share a value
             # label (e.g. two Yes/No attributes), and a bare-value key would
             # collapse their bounds together. Must match the key format

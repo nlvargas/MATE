@@ -1,4 +1,4 @@
-# MATE Architecture
+# MATE Technical Overview
 
 MATE ("Make A Team Efficiently") splits a roster of students into balanced
 groups. This document describes how it's built, why the model is shaped the
@@ -74,53 +74,34 @@ flowchart TB
     Excel --> Email(["Email to the instructor"])
 ```
 
-The fork point is a size check right after upload. What counts as "size"
-here is the model's estimated decision-variable count
-(`model_common.estimate_variable_count()`, §4's Preprocessing subsection),
-not raw student count: the same headcount can produce very different
-variable counts depending on how many distinct student types, topics, and
-sections are configured, and variable count is what actually drives solve
-time (see the note at the end of this section). Small models are solved
-synchronously inside the same request/response cycle and the browser gets
-results back directly; large ones are handed off to the cluster and the
-browser only ever hears "queued", with the result arriving later, by
-email, as a spreadsheet. By the time a request reaches Lambda it has
-already passed a short list of pre-flight feasibility rules (§4's
-"Pre-flight feasibility checks"), checked live in the browser as the
-request's parameters are configured, before it's ever sent: a combination
-of parameters that's mathematically guaranteed to fail never leaves the
-Configure & run screen, instead of spending a synchronous solve or a
-cluster job on it after a round-trip.
+After upload, MATE estimates how many decision variables the model will
+have and uses that number to pick a solve path. Variable count, not
+headcount, is what drives solve time: the same number of students can
+produce very different models depending on how many distinct student
+types, topics and sections there are (see Preprocessing in §4). Models
+under the threshold are solved with CP-SAT inside the request, and the
+results go straight back to the browser. Larger ones are sent to the
+university cluster, solved with Gurobi, and the results arrive by email as
+a spreadsheet. Before any of this, the browser checks the parameters
+against a set of feasibility rules (see Pre-flight feasibility checks in
+§4), so a configuration that can't possibly work never reaches the server.
 
-**Where the synchronous-solve threshold comes from.** A 14-point benchmark
-correlated CP-SAT's own reported variable count against real wall-clock
-solve time, using production solver settings (the greedy hint applied,
-the same relative optimality gap, 8 search workers) and generous time caps
-so genuine scaling was measured rather than an artificial cutoff. Solves
-stayed comfortably fast (well under a second to a few seconds) up to
-around 3,000-4,000 variables; past roughly 5,000-6,000, solve time became
-both much larger and much less predictable: two points with similar
-variable counts could differ by an order of magnitude in wall time, and
-several larger points never reached a proven-optimal solution inside a
-60-120s cap at all. That benchmark set the original cutoff at 4,000.
+**Choosing the threshold.** A benchmark of 14 rosters, run with the
+production solver settings, showed solves staying under a few seconds up
+to about 4,000 variables and becoming slow and unpredictable past 5,000 to
+6,000. That set the first threshold at 4,000. It was later raised to
+15,000 after a real 809-student roster (about 14,500 variables) solved to
+proven optimality in 7 to 8 seconds. Variable count is only a proxy for
+difficulty, though. That roster collapses into few student types, and a
+roster with many distinct types at the same size can be much harder, so
+the threshold should be re-measured on the production hardware.
 
-The cutoff is now 15,000, raised after running a production-sized roster
-through the app: 809 students in 16 attribute combinations, 4 attributes,
-10 topics, 120 groups of 6 to 7, about 14,500 estimated variables. It
-solved to proven optimality in 7 to 8 seconds on a 4-core machine. Variable
-count is a proxy for difficulty, not a measure of it: that roster collapses
-into few student types, which keeps it easy, while a roster with many
-distinct types at the same count can be far harder. Re-measure on the real
-Lambda memory and CPU before relying on 15,000, and lower
-`MATE_SYNC_MAX_VARIABLES` if solves start missing the time budget.
-
-When the time budget runs out before CP-SAT proves optimality, the solve comes
-back as FEASIBLE instead of OPTIMAL, and the Results screen shows the
-optimality gap: |objective - best bound| / |objective|, in percent, read off
-the solver at the moment it stopped. It is measured on the solver's full
-objective (preference cost plus the balance penalty), so it bounds how far
-the answer could be from the best possible one, not the share of students
-who got their first choice.
+**Time limit and optimality gap.** If the time budget runs out before
+CP-SAT proves optimality, the result is reported as FEASIBLE instead of
+OPTIMAL, and the Results screen shows the optimality gap: how far, at
+most, the solution could be from the best possible one. The gap is
+measured on the full objective (preferences plus the balance penalty), so
+it isn't the same as the share of students who got their first choice.
 
 ## 4. The model
 
@@ -132,12 +113,8 @@ topics. It reasons over student types rather than individual students: a
 type is a set of students who are functionally interchangeable, and
 collapsing them into one unit is what keeps the model tractable at real
 roster sizes (the Preprocessing subsection just below explains why and
-how). Both solver backends -- CP-SAT for the sync/in-request path, Gurobi
-for the async/cluster path -- implement the identical formulation below,
-each in its own independently deployed codebase (`code/client` and
-`code/cluster` respectively): they never import from each other, and
-`model_common.py`, the piece both share conceptually, is duplicated by
-hand rather than literally shared (see that file's module docstring).
+how). Both solver backends, CP-SAT for the in-request path and Gurobi
+for the cluster path, implement the identical formulation below.
 
 ### Preprocessing: student types instead of one variable per student
 
@@ -311,8 +288,7 @@ Every restriction above is a real constraint the solver has to satisfy.
 But several of them, combined with the request's own numbers, can already
 prove a request infeasible *before* a model is ever built, or even before
 a request is ever sent. These checks run entirely in the UI, live, as the
-Configure & run screen's parameters change (`issues` in
-`frontend/src/containers/CreateGroups.js`): each one is a sufficient
+Configure & run screen's parameters change. Each one is a sufficient
 condition for guaranteed infeasibility, traced directly from the
 restriction it corresponds to, so a check firing means no assignment of
 students to groups can possibly work, regardless of solver, time budget,
@@ -394,12 +370,9 @@ instead of at this pre-flight stage.
 
 An empty result from these checks is not a feasibility guarantee: it only
 rules out the mechanisms above. The solve itself is still the only way to
-know for sure. There's no longer a server-side twin of this list:
-`model_common.py` used to carry one, `validate_feasibility()`, re-run
-against every submitted request, removed once the UI checks above covered
-the same ground, so the same logic wasn't maintained in two places (Python
-and JavaScript) at once. A request that reaches the backend has already
-passed every check above in the UI that built it.
+know for sure. The checks live only in the browser: an earlier
+server-side copy was removed so the same logic isn't maintained in both
+Python and JavaScript.
 
 ## 5. The greedy warm-start heuristic
 

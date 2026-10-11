@@ -5,7 +5,7 @@
  *
  * Mirrors two things the backend computes for real once a solve is
  * actually requested: how many distinct student types the roster
- * collapses into (see docs/ARCHITECTURE.md's Preprocessing section), and
+ * collapses into (see docs/TECHNICAL_OVERVIEW.md's Preprocessing section), and
  * how many candidate groups get built from the configured topics/sections.
  * From those two counts it sums up an approximate decision-variable count
  * across every variable family the model declares. It's an estimate, not

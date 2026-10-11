@@ -32,7 +32,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 # there's nothing to keep in sync by hand.
 # 15000 covers the production-sized roster used to validate this change (809
 # students, 4 attributes, 10 topics, ~14,500 estimated variables, solved to
-# proven optimality in ~8s on a 4-core machine) -- see docs/ARCHITECTURE.md's
+# proven optimality in ~8s on a 4-core machine) -- see docs/TECHNICAL_OVERVIEW.md's
 # note on the threshold. The estimate counts variables, not difficulty: a
 # roster with many distinct student types can be much harder than one with
 # few at the same count, so re-measure on your actual Lambda memory/CPU

@@ -117,7 +117,7 @@ const STR = {
     // issue(s) to fix" note in the live summary, shown before a solve is
     // even attempted) -- the sole source of pre-flight feasibility
     // feedback now (model_common.validate_feasibility() used to duplicate
-    // several of these server-side; that's gone, see docs/ARCHITECTURE.md's
+    // several of these server-side; that's gone, see docs/TECHNICAL_OVERVIEW.md's
     // Pre-flight feasibility checks subsection). Distinct from the
     // server-side deletion-filter causes a real infeasible solve reports,
     // shown on the Results screen above.

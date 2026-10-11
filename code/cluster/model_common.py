@@ -233,7 +233,7 @@ def estimate_variable_count(params):
     how hard a roster actually is to solve: the same headcount can produce
     wildly different variable counts (and solve times) depending on how
     many distinct student types it collapses into and how many
-    topics/sections are configured. See docs/ARCHITECTURE.md's note on
+    topics/sections are configured. See docs/TECHNICAL_OVERVIEW.md's note on
     this threshold for the benchmark this number is based on.
 
     Mirrors _build_vars() family by family: y is sparse the same way it is

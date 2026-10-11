@@ -66,7 +66,7 @@ A few things make it practical at real class sizes:
 
 The full formulation (sets, variables, constraints and objective),
 benchmarks and design decisions are in
-**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**. A step-by-step
+**[docs/TECHNICAL_OVERVIEW.md](docs/TECHNICAL_OVERVIEW.md)**. A step-by-step
 [demo](docs/demo/README.md) shows a full run on a 48-student class.
 
 ## Stack

@@ -194,7 +194,7 @@ export default function CreateGroups(props) {
   // Rough pre-solve size estimate -- how many student types the roster
   // collapses into, how many candidate groups get built, and roughly how
   // many decision variables the model ends up with (see
-  // estimateModelSize.js and docs/ARCHITECTURE.md's Preprocessing/
+  // estimateModelSize.js and docs/TECHNICAL_OVERVIEW.md's Preprocessing/
   // Restrictions sections). This is what the sync/async routing indicator
   // (execPath, below) is based on -- an approximation of the exact count
   // the backend computes for real (model_common.estimate_variable_count()),
@@ -211,7 +211,7 @@ export default function CreateGroups(props) {
   // run server-side, on submit, in model_common.validate_feasibility() --
   // moved here so a person sees the same "this can't work" feedback the
   // moment the parameters that cause it are entered, instead of after a
-  // round-trip to the backend. See docs/ARCHITECTURE.md's Pre-flight
+  // round-trip to the backend. See docs/TECHNICAL_OVERVIEW.md's Pre-flight
   // feasibility checks subsection for the equations each one traces back
   // to; every check below reads only configured parameters (headcounts,
   // bounds, capacities), never a decision variable, since none exist yet

@@ -11,7 +11,7 @@ closed-form pre-flight infeasibility checks run server-side on every
 request. That moved to the frontend (frontend/src/containers/
 CreateGroups.js's `issues`, mirrored for the parameters it can reach
 client-side) so a person gets the same feedback live, while still typing,
-instead of after a round-trip -- see docs/ARCHITECTURE.md's Pre-flight
+instead of after a round-trip -- see docs/TECHNICAL_OVERVIEW.md's Pre-flight
 feasibility checks subsection. There's nothing left to test here on the
 backend for it.
 """

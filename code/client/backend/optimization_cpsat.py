@@ -843,7 +843,7 @@ def run_model(params):
     # long they took and gives the solver whatever's left, instead of the
     # full budget on top (a 50-student roster was seen taking ~29s total
     # with the old fixed-budget code, even though CP-SAT itself never hit
-    # its 20s cap). See docs/ARCHITECTURE.md.
+    # its 20s cap). See docs/TECHNICAL_OVERVIEW.md.
     solver, ctx, status = _solve_full(params)
     G, T = ctx["G"], ctx["T"]
     students_types, priority = ctx["students_types"], ctx["priority"]
