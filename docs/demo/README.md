@@ -47,6 +47,14 @@ With 8 groups of 5 to 7 students the configuration is feasible, and the
 summary panel confirms it before anything is sent to the solver. A roster
 this size is solved directly in the request with OR-Tools CP-SAT.
 
+If the configuration can't work, the panel says so before the solver
+runs. Changing the number of groups to `20` while keeping groups of 5 to
+7 students blocks the run: 20 groups of at least 5 students need 100
+people and the class has 48. The panel also flags that the topic limits
+(at most 4 groups per topic, 4 topics) can't add up to 20 groups.
+
+![Configure & run step with 20 groups, showing two issues to fix and the run button disabled](../images/03b_infeasible.png)
+
 ## 4. Results
 
 ![Results step with the solver status, preference outcomes and the members of each group](../images/04_results.png)
@@ -65,10 +73,3 @@ relaxing one at a time, to show what each requirement costs. Here 93.8% of
 students already get their first choice. Relaxing the group size range
 would add 6.2 percentage points and relaxing the number of groups 2.1,
 while attribute balance, topic coverage and section capacity cost nothing.
-
-## Try an infeasible configuration
-
-On the Configure & run screen, change the number of groups to `20` and
-keep the group size at 5 to 7. The summary panel immediately warns that
-20 groups of at least 5 students need 100 people and the class has 48, so
-the run is blocked before reaching the solver.

@@ -79,22 +79,12 @@ have and uses that number to pick a solve path. Variable count, not
 headcount, is what drives solve time: the same number of students can
 produce very different models depending on how many distinct student
 types, topics and sections there are (see Preprocessing in §4). Models
-under the threshold are solved with CP-SAT inside the request, and the
+under a size threshold are solved with CP-SAT inside the request, and the
 results go straight back to the browser. Larger ones are sent to the
 university cluster, solved with Gurobi, and the results arrive by email as
 a spreadsheet. Before any of this, the browser checks the parameters
 against a set of feasibility rules (see Pre-flight feasibility checks in
 §4), so a configuration that can't possibly work never reaches the server.
-
-**Choosing the threshold.** A benchmark of 14 rosters, run with the
-production solver settings, showed solves staying under a few seconds up
-to about 4,000 variables and becoming slow and unpredictable past 5,000 to
-6,000. That set the first threshold at 4,000. It was later raised to
-15,000 after a real 809-student roster (about 14,500 variables) solved to
-proven optimality in 7 to 8 seconds. Variable count is only a proxy for
-difficulty, though. That roster collapses into few student types, and a
-roster with many distinct types at the same size can be much harder, so
-the threshold should be re-measured on the production hardware.
 
 **Time limit and optimality gap.** If the time budget runs out before
 CP-SAT proves optimality, the result is reported as FEASIBLE instead of
@@ -151,42 +141,23 @@ quality.
 
 ### Decision variables
 
-| Variable | Meaning |
-|---|---|
-| $y_{i,g}$ | integer: how many students of type $i$ are assigned to group $g$ |
-| $w_g$ | 1 if group $g$ has any student assigned, else 0 |
-| $z_i$ | total priority-cost accumulated by type $i$'s assignment |
-| $z_{max}$ | the worst (highest) $z_i$ across all types (the worst-off student type) |
-| $q_{g,r}$ | how many students with attribute-value $r$ end up in group $g$ |
-| $p_{g,r}$ | 1 if group $g$ has *zero* students with attribute-value $r$ (only meaningful when $r$ is configured "solo": no group may have none of this trait) |
-| $m_g$ | how many students of unknown preference end up in group $g$ |
-| $m_{max}$ | the worst (highest) $m_g$ across all groups |
-| $u_{t,m}$ | 1 if topic $t$ is assigned into section $m$ |
-| $o_t$ | 1 if any group is actually formed for topic $t$ |
+| Variable | Domain | Meaning |
+|---|---|---|
+| $y_{i,g}$ | $\mathbb{N}$ | how many students of type $i$ are assigned to group $g$ |
+| $w_g$ | $\{0,1\}$ | 1 if group $g$ has any student assigned |
+| $z_i$ | $\mathbb{N}$ | total priority cost accumulated by type $i$'s assignment |
+| $z_{max}$ | $\mathbb{N}$ | the worst (highest) $z_i$ across all types (the worst-off student type) |
+| $q_{g,r}$ | $\mathbb{N}$ | how many students with attribute value $r$ end up in group $g$ |
+| $p_{g,r}$ | $\{0,1\}$ | 1 if group $g$ has *zero* students with attribute value $r$ (only used when $r$ is configured "solo": no group may have none of this trait) |
+| $m_g$ | $\mathbb{N}$ | how many students of unknown preference end up in group $g$ |
+| $m_{max}$ | $\mathbb{N}$ | the worst (highest) $m_g$ across all groups |
+| $u_{t,m}$ | $\{0,1\}$ | 1 if topic $t$ is assigned into section $m$ |
+| $o_t$ | $\{0,1\}$ | 1 if any group is actually formed for topic $t$ |
 
-### Objective
-
-```math
-\min \sum_i N_i z_i + W \cdot z_{max} + W \cdot m_{max}
-```
-
-$N_i$ is a type's total section availability (how many of the configured
-sections that type's students can actually attend), computed once during
-preprocessing. $W$ is a single large fixed weight, shared by both penalty
-terms and chosen to dominate the first term for any roster the model is
-meant to handle. The first term minimizes total assigned priority
-(topic-preference mismatches, weighted by how flexible a type's schedule
-is), and the $W$ terms heavily penalize whichever student type is worst
-off ($z_{max}$) and whichever group ends up with the most students of
-unknown preference ($m_{max}$), so the solver won't trade one badly served
-type for a slightly cheaper average across everyone else.
+$\mathbb{N}$ includes 0, and every integer variable also has an upper
+bound derived from the group size or the type's headcount.
 
 ### Restrictions
-
-A few restrictions are structural facts about the data and are always
-enforced. The rest are policy choices exposed on the Configure & run
-screen, and those are what the sensitivity analysis (§6) relaxes one at a
-time.
 
 **Headcount conservation.** Every student type's full headcount $R_i$ is
 placed somewhere:
@@ -240,6 +211,23 @@ entirely.
 tolerance of students whose preference is unknown isn't hard-capped. The
 overflow is tracked through $m_g$ and $m_{max}$ and penalized in the
 objective, so it's discouraged rather than forbidden.
+
+### Objective
+
+```math
+\min \sum_i N_i z_i + W \cdot z_{max} + W \cdot m_{max}
+```
+
+$N_i$ is a type's total section availability (how many of the configured
+sections that type's students can actually attend), computed once during
+preprocessing. $W$ is a single large fixed weight, shared by both penalty
+terms and chosen to dominate the first term for any roster the model is
+meant to handle. The first term minimizes total assigned priority
+(topic-preference mismatches, weighted by how flexible a type's schedule
+is), and the $W$ terms heavily penalize whichever student type is worst
+off ($z_{max}$) and whichever group ends up with the most students of
+unknown preference ($m_{max}$), so the solver won't trade one badly served
+type for a slightly cheaper average across everyone else.
 
 ### Pre-flight feasibility checks
 
@@ -306,20 +294,11 @@ disjoint slice of all groups, so the topics' bands $[min_t, max_t]$ have
 to bracket $K$:
 
 ```math
-\sum_{t \in T} max_t \ge K
+\sum_{t \in T} min_t \le K \le \sum_{t \in T} max_t
 ```
 
-and, only when every configured topic is required to be used:
-
-```math
-\sum_{t \in T} min_t \le K
-```
-
-Two more checks were left out on purpose because they're too subtle to
-encode safely as hard failures: solo attribute bounds (above), and the
-interaction between the used-topics cap and same-section topics, which
-are only coupled through $u_{t,m} \le o_t$. A real solve still catches
-those, just later.
+The left inequality only applies when every configured topic is required
+to be used.
 
 Passing every check doesn't guarantee feasibility; only the solve itself
 can. The checks live only in the browser, so the same logic isn't
