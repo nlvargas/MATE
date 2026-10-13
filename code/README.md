@@ -1,9 +1,8 @@
 # Deployment
 
 MATE runs on AWS Lambda (function `mate-dev`), deployed with
-[Zappa](https://github.com/zappa/Zappa) using `client/zappa_settings.json`.
-Static assets are served from S3. Paths and commands below are relative
-to this `code` folder.
+[Zappa](https://github.com/zappa/Zappa) using `code/client/zappa_settings.json`.
+Static assets are served from S3.
 
 ## One-time setup
 
@@ -24,12 +23,12 @@ In the Lambda console (Configuration > Environment variables), set
 environment variables on every deploy when that field is used.
 
 The other environment variables (secret key, cluster credentials) are set
-the same way. See `client/.env.example` for the full list.
+the same way. See `code/client/.env.example` for the full list.
 
 ## Every deploy
 
 ```bash
-cd client
+cd code/client
 python3.12 -m venv .venv312
 source .venv312/bin/activate
 pip install -r requirements.txt   # includes zappa
@@ -55,6 +54,6 @@ on cold start.
 
 ### Shared model code
 
-`client` is deployed on its own, so it carries its own copy of
-`model_common.py`, duplicated from `cluster`. If you change one copy,
+`code/client` is deployed on its own, so it carries its own copy of
+`model_common.py`, duplicated from `code/cluster`. If you change one copy,
 change the other and run both test suites before deploying.
