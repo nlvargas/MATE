@@ -142,7 +142,7 @@ python3 backend/tests/e2e_smoke_test.py --base-url http://localhost:8000/dev
 
 ## Deployment
 
-The app runs on AWS Lambda. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+The app runs on AWS Lambda. See [code/README.md](code/README.md).
 
 ## License
 
