@@ -69,8 +69,7 @@ flowchart LR
 
     RunModel -->|"no"| Upload["Compress params,<br/>submit job over SSH"]
     Upload --> Cluster["University Slurm cluster<br/>solves the model using Gurobi"]
-    Cluster --> Excel["Build results<br/>spreadsheet"]
-    Excel --> Email(["Email to the<br/>instructor"])
+    Cluster --> Email(["Results spreadsheet<br/>emailed to the instructor"])
 ```
 
 After upload, MATE estimates how many decision variables the model will
@@ -116,7 +115,7 @@ students are the same type when they share attributes, preferences and
 availability, and the model then uses one integer variable per (type,
 group) that counts how many students of that type land in the group.
 
-![Six students collapse into three student types](images/preprocessing.svg)
+![Six students collapse into three student types](assets/preprocessing.svg)
 
 In this example the assignment variables drop from $6 \times |G|$ to
 $3 \times |G|$. On a real roster the reduction depends on how many
@@ -312,7 +311,7 @@ in two passes:
    any group they can attend, ignoring preferences, so the hint is a
    complete assignment.
 
-![Greedy warm start filling groups by ranked preference](images/warm_start.svg)
+![Greedy warm start filling groups by ranked preference](assets/warm_start.svg)
 
 In the example, type A fills X1 with 4 students and the one left over
 fits in Y1, its 2nd choice. Type C finds X1 and Y1 already full, so its 3
@@ -352,4 +351,4 @@ in one request.
 ## 7. Demo
 
 A step-by-step walkthrough with screenshots and the roster used to
-produce them is in [demo/README.md](demo/README.md).
+produce them is in [DEMO.md](DEMO.md).

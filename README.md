@@ -10,8 +10,8 @@ find the assignment that gives students the project topics they ranked
 highest while meeting every rule.
 
 <p align="center">
-  <img src="docs/images/03_configure.png" width="49%" alt="Configure & run screen" />
-  <img src="docs/images/04_results.png" width="49%" alt="Results screen" />
+  <img src="docs/assets/03_configure.png" width="49%" alt="Configure & run screen" />
+  <img src="docs/assets/04_results.png" width="49%" alt="Results screen" />
 </p>
 
 ## How it works
@@ -67,7 +67,7 @@ A few things make it practical at real class sizes:
 The full formulation (sets, variables, constraints and objective),
 benchmarks and design decisions are in
 **[docs/TECHNICAL_OVERVIEW.md](docs/TECHNICAL_OVERVIEW.md)**. A step-by-step
-[demo](docs/demo/README.md) shows a full run on a 48-student class.
+[demo](docs/DEMO.md) shows a full run on a 48-student class.
 
 ## Stack
 
@@ -113,8 +113,8 @@ which predates Node 18's OpenSSL defaults. Use `npm run dev` instead of
 rebuild after each frontend change.
 
 Then open <http://localhost:8000/>. To try it with sample data, follow
-the [demo](docs/demo/README.md) and upload
-[`docs/demo/demo_roster.xlsx`](docs/demo/demo_roster.xlsx).
+the [demo](docs/DEMO.md) and upload
+[`docs/assets/demo_roster.xlsx`](docs/assets/demo_roster.xlsx).
 
 ### 3. Tests
 
