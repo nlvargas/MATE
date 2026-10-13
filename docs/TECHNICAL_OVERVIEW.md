@@ -47,31 +47,30 @@ emailed spreadsheet once a compute cluster finishes the solve.
 ## 3. Architecture diagram
 
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph Client["Browser"]
-        SPA["React SPA<br/>(wizard: Setup → Upload → Configure → Results)"]
+        SPA["React SPA<br/>Setup → Upload → Configure → Results"]
     end
 
     subgraph Hosting["AWS (deployed via Zappa)"]
+        S3["S3 bucket<br/>frontend static assets"]
         APIGW["API Gateway"]
         Lambda["Lambda function<br/>runs the web application"]
-        S3["S3 bucket<br/>frontend static assets"]
     end
 
-    SPA -->|"GET static assets"| S3
+    SPA -->|"static assets"| S3
     SPA -->|"upload roster / run solve"| APIGW
     APIGW --> Lambda
 
-    Lambda --> RunModel{"Estimated variable count within<br/>the synchronous-solve threshold?"}
+    Lambda --> RunModel{"Model under the<br/>size threshold?"}
 
-    RunModel -->|"yes: small roster<br/>(sync path)"| SolveSync["CP-SAT solve, in-request"]
-    SolveSync -->|"JSON response"| SPA
+    RunModel -->|"yes"| SolveSync["CP-SAT solve,<br/>in-request"]
+    SolveSync --> Show(["Results shown<br/>in the browser"])
 
-    RunModel -->|"no: large roster<br/>(async path)"| Upload["Compress params,<br/>submit job over SSH"]
-    Upload --> Cluster["University Slurm cluster<br/>(headless solve)"]
-    Cluster --> SolveAsync["Gurobi solve"]
-    SolveAsync --> Excel["Build results spreadsheet"]
-    Excel --> Email(["Email to the instructor"])
+    RunModel -->|"no"| Upload["Compress params,<br/>submit job over SSH"]
+    Upload --> Cluster["University Slurm cluster<br/>solves the model using Gurobi"]
+    Cluster --> Excel["Build results<br/>spreadsheet"]
+    Excel --> Email(["Email to the<br/>instructor"])
 ```
 
 After upload, MATE estimates how many decision variables the model will
@@ -130,7 +129,7 @@ quality.
 ### Sets
 
 | Notation | Meaning |
-|---|---|
+|:---:|---|
 | $I$ | student types |
 | $NA \subseteq I$ | types with unknown/unanswered preferences |
 | $R$ | attribute *values* (e.g. a specific gender or home university) |
@@ -142,20 +141,17 @@ quality.
 ### Decision variables
 
 | Variable | Domain | Meaning |
-|---|---|---|
+|:---:|:---:|---|
 | $y_{i,g}$ | $\mathbb{N}$ | how many students of type $i$ are assigned to group $g$ |
-| $w_g$ | $\{0,1\}$ | 1 if group $g$ has any student assigned |
+| $w_g$ | $\lbrace 0, 1 \rbrace$ | 1 if group $g$ has any student assigned |
 | $z_i$ | $\mathbb{N}$ | total priority cost accumulated by type $i$'s assignment |
 | $z_{max}$ | $\mathbb{N}$ | the worst (highest) $z_i$ across all types (the worst-off student type) |
 | $q_{g,r}$ | $\mathbb{N}$ | how many students with attribute value $r$ end up in group $g$ |
-| $p_{g,r}$ | $\{0,1\}$ | 1 if group $g$ has *zero* students with attribute value $r$ (only used when $r$ is configured "solo": no group may have none of this trait) |
+| $p_{g,r}$ | $\lbrace 0, 1 \rbrace$ | 1 if group $g$ has *zero* students with attribute value $r$ (only used when $r$ is configured "solo": no group may have none of this trait) |
 | $m_g$ | $\mathbb{N}$ | how many students of unknown preference end up in group $g$ |
 | $m_{max}$ | $\mathbb{N}$ | the worst (highest) $m_g$ across all groups |
-| $u_{t,m}$ | $\{0,1\}$ | 1 if topic $t$ is assigned into section $m$ |
-| $o_t$ | $\{0,1\}$ | 1 if any group is actually formed for topic $t$ |
-
-$\mathbb{N}$ includes 0, and every integer variable also has an upper
-bound derived from the group size or the type's headcount.
+| $u_{t,m}$ | $\lbrace 0, 1 \rbrace$ | 1 if topic $t$ is assigned into section $m$ |
+| $o_t$ | $\lbrace 0, 1 \rbrace$ | 1 if any group is actually formed for topic $t$ |
 
 ### Restrictions
 
@@ -239,7 +235,9 @@ can work regardless of solver, time budget or hardware. Running them in
 the UI keeps doomed configurations away from the solver and tells the
 person editing a bound right away which values are workable. They only
 read configured parameters (headcounts, bounds, capacities), since no
-decision variables exist yet.
+decision variables exist yet. Passing every check doesn't guarantee feasibility,
+though; only the solve itself can. The checks live only in the browser, so
+the same logic isn't maintained in both Python and JavaScript.
 
 **Section availability.** A type unavailable for every section would get
 no $y_{i,g}$ variables at all, making its headcount conservation
@@ -299,10 +297,6 @@ to bracket $K$:
 
 The left inequality only applies when every configured topic is required
 to be used.
-
-Passing every check doesn't guarantee feasibility; only the solve itself
-can. The checks live only in the browser, so the same logic isn't
-maintained in both Python and JavaScript.
 
 ## 5. The greedy warm-start heuristic
 
