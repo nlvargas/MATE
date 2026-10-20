@@ -5,7 +5,7 @@ from django.shortcuts import render
 def _api_base(request):
     """
     URL prefix the frontend puts in front of /upload/, /run_model/ and
-    /sensitivity/. Locally (DEBUG) the backend routes are mounted under
+    /run_sensitivity_analysis/. Locally (DEBUG) the backend routes are mounted under
     /dev/ (see project/urls.py). Deployed, they live at the root of
     whatever origin serves the page: the custom domain maps straight onto
     the stage (so no prefix), while the default execute-api URL carries

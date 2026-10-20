@@ -1,7 +1,7 @@
 """
 Ad-hoc benchmark (not part of the test suite): for a given roster size N
 and target group count, builds the real CP-SAT model (production shape --
-greedy hint applied, same solver settings run_model() uses) and times how
+hint applied, same solver settings run_model() uses) and times how
 long it takes to solve, alongside the model's actual variable count.
 
 Appends one CSV row per invocation to backend/tests/vartime_results2.csv so
@@ -30,7 +30,8 @@ from ortools.sat.python import cp_model
 
 from backend import views
 from backend.utils import create_parms
-from backend.optimization_cpsat import _build_model, _greedy_hint
+from backend.optimization_cpsat import _build_model
+from backend.warm_start import feasible_hint
 
 ATTRS = {"A1": ["a", "b", "c"], "A2": ["x", "y", "z"], "A3": ["p", "q", "r"]}
 MODULES = ["Mon 10:00", "Wed 15:00", "Fri 09:00"]
@@ -160,11 +161,10 @@ def main():
     real_var_count = len(model.Proto().variables)
     est_var_count = estimate_variables(params, G, T, G_t, G_d, G_td)
 
-    y_hint, w_hint = _greedy_hint(params, G, T, G_t, G_d, G_td)
-    for (i, g) in y:
-        model.AddHint(y[i, g], y_hint.get((i, g), 0))
-    for g in G:
-        model.AddHint(w[g], w_hint.get(g, 0))
+    hint = feasible_hint(model, ctx, params)
+    if hint is not None:
+        for idx, val in hint.items():
+            model.AddHint(model.GetIntVarFromProtoIndex(idx), val)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = cap_seconds

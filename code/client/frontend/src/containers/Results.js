@@ -21,7 +21,7 @@ function statusClass(statusName) {
 
 export default function Results({ runResult, attributes, goConfigure }) {
   const { t, tf } = useI18n();
-  const [sensitivity, setSensitivity] = useState(null); // null=not run, {loading:true}, {error:true}, or the /sensitivity/ response
+  const [sensitivity, setSensitivity] = useState(null); // null=not run, {loading:true}, {error:true}, or the /run_sensitivity_analysis/ response
 
   if (!runResult) {
     return (
@@ -125,13 +125,21 @@ export default function Results({ runResult, attributes, goConfigure }) {
   // the button inert instead of crashing if that ever changes).
   const requestBody = runResult._context && runResult._context.requestBody;
 
+  function familyLabel(f) {
+    const d = f.family;
+    if (!d) return f.label;
+    const key = "fam" + d.kind.charAt(0).toUpperCase() + d.kind.slice(1);
+    return tf(key, d);
+  }
+
   function runSensitivity() {
     if (!requestBody) return;
     setSensitivity({ loading: true });
-    axios.post(apiUrl('/sensitivity/'), requestBody)
+    const solution = runResult.groups.map((g) => ({ group: g.group, students: g.students.map((s) => s.id) }));
+    axios.post(apiUrl('/run_sensitivity_analysis/'), { ...requestBody, solution })
       .then((response) => setSensitivity(response.data))
       .catch((err) => {
-        // views.sensitivity() answers too-large/unsupported-solver with a
+        // views.run_sensitivity_analysis() answers too-large/unsupported-solver with a
         // {error, message} body (same shape CreateGroups.js's own
         // runModelRequest() already special-cases for run_model()'s
         // too_large error) -- surface that message when present instead of
@@ -234,37 +242,32 @@ export default function Results({ runResult, attributes, goConfigure }) {
         {sensitivity && !sensitivity.loading && sensitivity.error && (
           <p className="card-sub" style={{ margin: 0 }}>{sensitivity.message || t("sensitivityError")}</p>
         )}
-        {sensitivity && !sensitivity.loading && !sensitivity.error && sensitivity.baseline_pct == null && (
+        {sensitivity && !sensitivity.loading && !sensitivity.error && sensitivity.available === false && (
           <p className="card-sub" style={{ margin: 0 }}>{t("sensitivityUnavailable")}</p>
         )}
-        {sensitivity && !sensitivity.loading && !sensitivity.error && sensitivity.baseline_pct != null && (
-          sensitivity.families.length === 0 ? (
-            <p className="card-sub" style={{ margin: 0 }}>{tf("sensitivityNoneBinding", { pct: sensitivity.baseline_pct })}</p>
-          ) : (
-            <React.Fragment>
-              <p className="card-sub" style={{ marginBottom: 10 }}>
-                {tf("sensitivityBaseline", { pct: sensitivity.baseline_pct })}
-              </p>
-              {sensitivity.families.map((f, i) => (
-                <div className="dist-row" key={i}>
-                  <div className="dist-topic">{f.label}</div>
-                  <div className="dist-bar-line">
-                    <div className="dist-track">
-                      {/* families[0] is safely the max, non-zero gain here: optimization_cpsat.py's
-                          sensitivity_report() sorts `families` by gain_points descending and only
-                          appends entries with gain_points > 0.5 before returning, so this can't
-                          divide by zero or by a non-max value under the current backend contract. */}
-                      <div
-                        className="dist-fill seg1"
-                        style={{ width: `${Math.min(100, (f.gain_points / sensitivity.families[0].gain_points) * 100)}%` }}
-                      />
-                    </div>
-                    <span className="dist-val">+{f.gain_points} pts</span>
+        {sensitivity && !sensitivity.loading && !sensitivity.error && sensitivity.available && (
+          <React.Fragment>
+            <p className="card-sub" style={{ marginBottom: 10 }}>
+              {sensitivity.families.length > 0 ? t("sensitivityBaseline") : t("sensitivityNoneBinding")}
+            </p>
+            {sensitivity.families.map((f, i) => (
+              <div className="dist-row" key={i}>
+                <div className="dist-topic">{familyLabel(f)}</div>
+                <div className="dist-bar-line">
+                  <div className="dist-track">
+                    <div
+                      className="dist-fill seg1"
+                      style={{ width: `${Math.min(100, (f.gain_points / sensitivity.families[0].gain_points) * 100)}%` }}
+                    />
                   </div>
+                  <span className="dist-val">+{f.gain_points} {t(f.gain_points === 1 ? "sensitivityPoint" : "sensitivityPoints")}</span>
                 </div>
-              ))}
-            </React.Fragment>
-          )
+              </div>
+            ))}
+            {sensitivity.unchecked > 0 && (
+              <p className="card-sub" style={{ margin: "10px 0 0" }}>{tf("sensitivityUnchecked", { n: sensitivity.unchecked })}</p>
+            )}
+          </React.Fragment>
         )}
       </div>
     </div></div>

@@ -347,7 +347,7 @@ export default function CreateGroups(props) {
           _context: {
             students: totalStudents, groups: groupsNumber, min: minStudents, max: maxStudents, email,
             // Kept so Results.js can re-run the same roster/settings through
-            // /sensitivity/ on demand (see its Sensitivity card) without
+            // /run_sensitivity_analysis/ on demand (see its Sensitivity card) without
             // the parent needing to separately track or re-derive the body
             // this run already sent -- the sensitivity analysis is defined
             // as "what if one bound on *this* request were relaxed", so it

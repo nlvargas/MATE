@@ -224,6 +224,14 @@ off ($z_{max}$) and whichever group ends up with the most students of
 unknown preference ($m_{max}$), so the solver won't trade one badly served
 type for a slightly cheaper average across everyone else.
 
+This is the built-in tension of the problem. Every rule an instructor adds
+(attribute balance, group size, topic capacity, shared time slots) shrinks
+the set of valid assignments, and with it the room to give each student
+their first choice. Within what's left there is a second trade-off, between
+a better average and protecting the worst-off students, and the objective
+settles it in favor of the worst-off. [Section 6](#6-sensitivity-analysis)
+measures how much of the first tension each rule is responsible for.
+
 ### Pre-flight feasibility checks
 
 Several restrictions, combined with the request's own numbers, can prove
@@ -327,26 +335,112 @@ still proving optimality.
 
 ## 6. Sensitivity analysis
 
-From the Results screen, MATE can answer what each requirement is costing.
-It re-solves the model once per configurable constraint family with that
-family relaxed and everything else fixed, and reports how many more
-students would get their 1st-choice topic, in percentage points, the same
-unit as the Results screen's preference outcomes. The same mechanism
-explains failed solves: when a configuration is infeasible, relaxing one
-family at a time shows which bound is blocking it. The analysis only runs
-on demand, because one extra solve per family on every request wouldn't
-fit in the synchronous time budget.
+After a solve, the natural question is which of the rules is holding the
+result back. From the Results screen, MATE answers it by relaxing each rule
+on its own and optimizing again. Only the rules whose relaxation improves
+the result are listed, with the size of the improvement.
 
-The baseline is solved like the main solve, and its solution is used as a
-warm start for every trial. Relaxing a constraint only enlarges the
-feasible region, so the baseline is always a valid starting point and a
-trial can only match or beat it. An earlier version solved every trial
-cold, and on an 800-student roster its baseline reached only 54.8% of
-students on their 1st choice against 93.7% in the main solve, so the
-reported gains were noise. Two limits remain on large rosters: gains of a
-point or two are within the variation between equally optimal
-assignments, and with around 20 constraint families only the first few fit
-in one request.
+### The idea in plain terms
+
+Think of every rule (group size range, attribute balance, topic coverage,
+section capacity) as a fence around the possible assignments. MATE removes
+one fence, searches again for the best assignment, and checks whether the
+best result got better. If it did, that rule has a cost and the card shows
+how much. If it didn't, the rule isn't what limits the result. Because the
+solver can prove that no better assignment exists, "no change" is a proof
+and not an estimate.
+
+The analysis only runs when asked, since it needs one extra search per rule
+and that wouldn't fit in the time budget of every request.
+
+### What the numbers mean
+
+The model's objective judges a result by its worst case: how badly off the
+most disadvantaged kind of student is (`1000 * (z_max + M_max)`, plus a
+total-mismatch term that matters little next to it). The improvement is
+reported in that unit, in points of 1000, so one point is roughly one
+student who no longer ends up without any of their choices. We don't report
+the share of students who get their 1st choice because the objective
+doesn't optimize it: many assignments tie on the objective and differ widely
+in that share, so the number would change from run to run.
+
+### How it works
+
+1. The Results screen calls `/run_sensitivity_analysis/` with the same
+   request body as the main solve plus the solution it received (each group
+   and its student ids). The server rebuilds the model and checks that the
+   solution satisfies it, so nothing is solved twice. If the solution is
+   missing or doesn't fit the model, the baseline is solved like the main
+   solve instead.
+2. The unrelaxed model is optimized once from that assignment. When it
+   finishes, it gives a proven lower bound on the objective.
+3. Each rule is a clone of the model with that rule's constraints widened in
+   place. A feasibility solve with the objective capped just below the bound
+   asks whether any assignment beats it.
+4. If one exists, the rule improves the result, and the search is continued
+   from that assignment to measure the gain. If the solver proves none
+   exists, the rule changes nothing, provided the bound was tight.
+5. Only the rules that improve the result are listed. A rule that couldn't
+   be decided, because the baseline wasn't proven optimal or the time budget
+   ran out, is counted as unchecked and shown as a count, so the card never
+   claims more than was proven.
+
+A linear relaxation of the model only decides the order in which rules are
+checked, largest dual value first, so the ones most likely to matter are
+decided before the budget runs out.
+
+### Why it re-optimizes instead of reading dual values
+
+In a linear program, the dual values say directly what relaxing a constraint
+is worth. In an integer program they don't. The optimal value as a function
+of the right-hand side is not a straight line but a piecewise function with
+jumps, which is what Blair and Jeroslow (1982) showed and Wolsey (1981)
+discusses as price functions. A dual value taken from the relaxation can be
+zero for a rule that does cost something.
+Re-optimizing answers the question directly.
+
+### Where this comes from
+
+Re-solving a modified model to see how the optimum moves is the standard
+form of post-optimality analysis for integer programs, which Geoffrion and
+Nauss (1977) survey. Removing one family of constraints at a time and
+re-solving is close in spirit to the infeasibility diagnosis of Chinneck and
+Dravnieks (1991), which MATE also uses when a configuration has no solution.
+Capping the objective and asking for feasibility is a standard way to prove
+that nothing better exists.
+
+There are methods that read sensitivity ranges from the solver's own search
+tree instead of re-solving (Schrage and Wolsey, 1985; Dawande and Hooker,
+2000), but they need access to that tree, which OR-Tools CP-SAT doesn't
+expose. Theoretical bounds on how far an integer optimum can move (Cook,
+Gerards, Schrijver and Tardos, 1986) depend on the largest subdeterminant of
+the constraint matrix and are far too loose for a model of this size. We
+haven't found this exact combination described as a single published
+method: it puts the pieces above together, with the proof-based reporting
+described in step 5.
+
+### References
+
+- Blair, C. E., and Jeroslow, R. G. (1982). The value function of an integer
+  program. *Mathematical Programming* 23, 237-273.
+- Chinneck, J. W., and Dravnieks, E. W. (1991). Locating minimal infeasible
+  constraint sets in linear programs. *ORSA Journal on Computing* 3(2),
+  157-168. [doi:10.1287/ijoc.3.2.157](https://doi.org/10.1287/ijoc.3.2.157)
+- Cook, W., Gerards, A. M. H., Schrijver, A., and Tardos, E. (1986).
+  Sensitivity theorems in integer linear programming. *Mathematical
+  Programming* 34, 251-264.
+- Dawande, M., and Hooker, J. N. (2000). Inference-based sensitivity analysis
+  for mixed integer/linear programming. *Operations Research* 48(4), 623-634.
+  [doi:10.1287/opre.48.4.623.12420](https://doi.org/10.1287/opre.48.4.623.12420)
+- Geoffrion, A. M., and Nauss, R. (1977). Parametric and postoptimality
+  analysis in integer linear programming. *Management Science* 23(5),
+  453-466. [doi:10.1287/mnsc.23.5.453](https://doi.org/10.1287/mnsc.23.5.453)
+- Schrage, L., and Wolsey, L. (1985). Sensitivity analysis for branch and
+  bound integer programming. *Operations Research* 33(5), 1008-1023.
+  [doi:10.1287/opre.33.5.1008](https://doi.org/10.1287/opre.33.5.1008)
+- Wolsey, L. A. (1981). Integer programming duality: price functions and
+  sensitivity analysis. *Mathematical Programming*.
+  [doi:10.1007/BF01589344](https://doi.org/10.1007/BF01589344)
 
 ## 7. Demo
 

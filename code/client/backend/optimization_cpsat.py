@@ -53,11 +53,14 @@ aren't covered by a family yet (out of scope for this pass) -- they show up
 folded into whichever other family's resolve happens to also fail.
 """
 import itertools
+import math
 import time
 from collections import defaultdict
 
 from ortools.sat.python import cp_model
 
+from backend.sensitivity_lp import dual_screen
+from backend.warm_start import feasible_hint, objective_value, solution_values
 from model_common import (
     preprocessing, get_min_capacity, group_display_name, compute_priority, UNRANKED_PRIORITY,
 )
@@ -139,6 +142,29 @@ def assign_students(students_dict, students_types, student_type_name, solver, y,
                 student = student_type["students_list"].pop()
                 students.append(students_dict[student])
     return students
+
+
+def _family_descriptors(params):
+    """
+    key -> structured description of each family _candidate_families() lists,
+    so a client can word the label in its own language.
+    """
+    cap = get_min_capacity(params)
+    descriptors = {
+        "group_size": {"kind": "group_size", "lo": params["lower_number"], "hi": params["upper_number"]},
+        "groups_number": {"kind": "groups_number", "n": params["groups_number"]},
+        "used_preferences": {"kind": "used_preferences", "n": params["usedPreferences"]},
+    }
+    for a, values in params["attributes"].items():
+        for r, b in values.items():
+            descriptors[f"attr:{a}:{r}"] = {
+                "kind": "attr_solo" if b.get("solo") else "attr", "a": a, "r": r, "min": b["min"], "max": b["max"],
+            }
+    for p, b in params["preferences"].items():
+        descriptors[f"topic:{p}"] = {"kind": "topic", "p": p, "min": b["min"], "max": b["max"]}
+    for d in params["modules"]:
+        descriptors[f"section:{d}"] = {"kind": "section", "d": d, "n": cap[d]}
+    return descriptors
 
 
 def _candidate_families(params):
@@ -230,7 +256,7 @@ def _build_model(params, disabled=frozenset(), symmetry_break=False, precomputed
     model = cp_model.CpModel()
 
     v = _build_vars(model, mp)
-    _add_constraints(model, mp, v, disabled)
+    family_constraints = _add_constraints(model, mp, v, disabled)
     if symmetry_break:
         _add_symmetry_breaking(model, mp, v)
     _set_objective(model, mp, v)
@@ -239,6 +265,7 @@ def _build_model(params, disabled=frozenset(), symmetry_break=False, precomputed
         "y": v["y"], "w": v["w"], "G": mp["G"], "T": mp["T"], "priority": mp["priority"],
         "students_types": mp["students_types"],
         "G_t": mp["G_t"], "G_d": mp["G_d"], "G_td": mp["G_td"],
+        "model": model, "family_constraints": family_constraints,
     }
     return model, ctx
 
@@ -374,7 +401,18 @@ def _build_vars(model, mp):
 
 
 def _add_constraints(model, mp, v, disabled):
-    """_build_model()'s old Constraints section, moved here unchanged."""
+    """
+    _build_model()'s old Constraints section, moved here unchanged except
+    that every constraint a `disabled` family key can switch off is also
+    recorded by index under that key. Returns {family key: [constraint
+    index, ...]} so sensitivity_report() can map LP duals back to families
+    without rebuilding the model once per family.
+    """
+    family_constraints = defaultdict(list)
+
+    def tag(key, constraint):
+        family_constraints[key].append(constraint.Index())
+
     T = mp["T"]
     G = mp["G"]
     D = mp["D"]
@@ -416,15 +454,15 @@ def _add_constraints(model, mp, v, disabled):
         model.Add(y[i, g] <= upper_number * w[g])
 
     if "groups_number" not in disabled:
-        model.Add(sum(w[g] for g in G) == groups_number)
+        tag("groups_number", model.Add(sum(w[g] for g in G) == groups_number))
 
     if "group_size" not in disabled:
         for g in G:
-            model.Add(sum(y.get((i, g), 0) for i in T) >= lower_number * w[g])
-            model.Add(sum(y.get((i, g), 0) for i in T) <= upper_number * w[g])
+            tag("group_size", model.Add(sum(y.get((i, g), 0) for i in T) >= lower_number * w[g]))
+            tag("group_size", model.Add(sum(y.get((i, g), 0) for i in T) <= upper_number * w[g]))
 
     if "used_preferences" not in disabled:
-        model.Add(sum(o[p] for p in preferences) <= used_preferences)
+        tag("used_preferences", model.Add(sum(o[p] for p in preferences) <= used_preferences))
 
     for g in G:
         model.Add(sum(y.get((i, g), 0) for i in not_answered) <= 1 + M[g])
@@ -437,9 +475,9 @@ def _add_constraints(model, mp, v, disabled):
             continue
         if used_preferences == len(preferences):
             min_bound = int(preferences_bounds[preference]["min"])
-            model.Add(sum(w[g] for g in G_t[str(preference)]) >= min_bound)
+            tag(f"topic:{preference}", model.Add(sum(w[g] for g in G_t[str(preference)]) >= min_bound))
         max_bound = int(preferences_bounds[preference]["max"])
-        model.Add(sum(w[g] for g in G_t[str(preference)]) <= max_bound)
+        tag(f"topic:{preference}", model.Add(sum(w[g] for g in G_t[str(preference)]) <= max_bound))
 
     for i in T:
         model.Add(z[i] == sum(y.get((i, g), 0) * int(priority[i][g]) for g in G))
@@ -466,12 +504,12 @@ def _add_constraints(model, mp, v, disabled):
                 continue
             if not attr_bounds[a][r]["solo"]:
                 for g in G:
-                    model.Add(min_bound * w[g] <= Q[g, attr_key])
-                    model.Add(max_bound * w[g] >= Q[g, attr_key])
+                    tag(f"attr:{attr_key}", model.Add(min_bound * w[g] <= Q[g, attr_key]))
+                    tag(f"attr:{attr_key}", model.Add(max_bound * w[g] >= Q[g, attr_key]))
             else:
                 for g in G:
-                    model.Add(min_bound * (w[g] - P[g, attr_key]) <= Q[g, attr_key])
-                    model.Add(Q[g, attr_key] <= max_bound * (1 - P[g, attr_key]))
+                    tag(f"attr:{attr_key}", model.Add(min_bound * (w[g] - P[g, attr_key]) <= Q[g, attr_key]))
+                    tag(f"attr:{attr_key}", model.Add(Q[g, attr_key] <= max_bound * (1 - P[g, attr_key])))
 
     if modules:
         for d in D:
@@ -481,7 +519,7 @@ def _add_constraints(model, mp, v, disabled):
             # available for this slot), not a policy choice, so it's always
             # enforced.
             if f"section:{d}" not in disabled:
-                model.Add(sum(y.get((i, g), 0) for i in T for g in G_d[d]) <= cap[d])
+                tag(f"section:{d}", model.Add(sum(y.get((i, g), 0) for i in T for g in G_d[d]) <= cap[d]))
 
         for d in D:
             for i in T:
@@ -518,6 +556,8 @@ def _add_constraints(model, mp, v, disabled):
         for p in preferences:
             for d in D:
                 model.Add(u[p, d] <= o[p])
+
+    return family_constraints
 
 
 def _add_symmetry_breaking(model, mp, v):
@@ -648,95 +688,9 @@ def find_infeasibility_causes(params):
         return []
 
 
-def _greedy_hint(params, G, T, G_t, G_d, G_td):
-    """
-    Cheap constructive heuristic that seeds CP-SAT's search via
-    model.AddHint() in run_model(), unconditionally, on every solve.
-    Benchmarked 2026-09-09 against synthetic rosters of 150 and 400
-    students: roughly a wash at 150 (3.2s -> 3.0s), but a real and
-    consistent win at 400 -- mean solve time dropped from ~29s to ~23s
-    across repeated runs (baseline ranged 24.9-34.4s, hinted stayed tight
-    at 22.5-22.9s), with both still proving OPTIMAL. Worth keeping on
-    unconditionally: building the hint is cheap (pure Python, no solver
-    calls) and it never made a solve slower or worse in testing, only
-    faster or a no-op -- unlike the symmetry-breaking constraints above
-    (_ENABLE_SYMMETRY_BREAKING), which measurably hurt at both sizes.
-
-    Ignores the objective and every soft/balance bound entirely: it only
-    respects the two things that make a placement *structurally* sane (a
-    student type can only sit in a section it marked available, and a
-    group can't exceed upper_number seats), first packing each type into
-    a group for its ranked topics (rank order, first-fit within the
-    matching family), then dumping anything left over into whatever group
-    it can physically sit in. Not required to be feasible or even
-    complete -- CP-SAT treats a hint as a suggestion, not a solution -- so
-    a rough answer here is fine; the point is only to give the search a
-    plausible place to start instead of nothing.
-
-    `G`, `T`, `G_t`, `G_d`, `G_td` are the same structures `_build_model()`
-    already computed (its `ctx`) -- passed in rather than rebuilt here, so
-    this doesn't run preprocessing() a second time on
-    every request.
-    """
-    modules = params["modules"]
-    students_types = params["students_types"]
-    upper_number = params["upper_number"]
-    D = list(modules)
-
-    remaining = {i: max(0, int(students_types[i]["students"])) for i in T}
-    fill = {g: 0 for g in G}
-    y_hint = defaultdict(int)
-
-    def available_sections(i):
-        if not D:
-            return [None]
-        return [d for d in D if int(students_types[i]["a"].get(d, 0)) == 1] or list(D)
-
-    def place(i, candidates):
-        for g in candidates:
-            if remaining[i] <= 0:
-                break
-            room = upper_number - fill[g]
-            if room <= 0:
-                continue
-            take = min(room, remaining[i])
-            fill[g] += take
-            y_hint[(i, g)] += take
-            remaining[i] -= take
-
-    # Pass 1: rank order, restricted to a section the type is available for.
-    max_rank = max((len(students_types[i].get("preferences", {}) or {}) for i in T), default=0)
-    for rank in range(1, max_rank + 1):
-        for i in T:
-            if remaining[i] <= 0:
-                continue
-            topic = students_types[i].get("preferences", {}).get(str(rank))
-            if not topic:
-                continue
-            for d in available_sections(i):
-                family = G_td.get((topic, d), []) if D else G_t.get(topic, [])
-                place(i, family)
-                if remaining[i] <= 0:
-                    break
-
-    # Pass 2: fallback -- anything left goes anywhere the type can physically
-    # sit, regardless of preference, so the hint is a complete assignment.
-    for i in T:
-        if remaining[i] <= 0:
-            continue
-        for d in available_sections(i):
-            candidates = G_d.get(d, []) if D else G
-            place(i, candidates)
-            if remaining[i] <= 0:
-                break
-
-    w_hint = {g: (1 if fill[g] > 0 else 0) for g in G}
-    return y_hint, w_hint
-
-
 # Floor on the CP-SAT search itself, however long model-building/hinting
 # already ate into the wall-clock budget below. Without this, a roster
-# whose _build_model()/_greedy_hint() alone chew through the whole budget
+# whose model building and hinting alone chew through the whole budget
 # would hand the solver zero (or negative) time and get back an
 # artificial INFEASIBLE/UNKNOWN rather than an honest attempt.
 _MIN_SEARCH_SECONDS = 2.0
@@ -750,14 +704,16 @@ _MIN_SEARCH_SECONDS = 2.0
 # infeasibility search, and are deliberately separate constants (not reused)
 # so the two searches' budgets can be tuned independently later.
 _SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS = 5.0
-# The baseline is solved the same way run_model() solves (greedy hint,
-# search budget), on its own bounded budget; every trial is then warm-
-# started from that solution -- see sensitivity_report()'s docstring.
+# Budget for the baseline solve that every trial is compared against.
 _SENSITIVITY_BASELINE_TIME_LIMIT_SECONDS = 10.0
 # Wall-clock ceiling for the whole analysis (baseline + trials). Stays under
 # Lambda/API Gateway's 29s request cap: a trial is only started if it can
 # still finish inside this budget.
 _SENSITIVITY_TOTAL_TIME_BUDGET_SECONDS = 24.0
+_SENSITIVITY_MIN_SOLVE_SECONDS = 1.0
+# Smaller gains come from the secondary (flexibility) term, not from students.
+_SENSITIVITY_MIN_GAIN_POINTS = 0.05
+_UNBOUNDED = 2 ** 62
 
 
 def _solve_full(params):
@@ -773,24 +729,19 @@ def _solve_full(params):
 
     Returns (solver, ctx, status). Does not extract results or handle
     infeasibility -- that's each caller's own job, since run_model() wants
-    per-student groups and sensitivity_report() only ever wants aggregate
-    y[] values (see _top_choice_share() below).
+    per-student groups and sensitivity_report() has no use for them.
     """
     started = time.monotonic()
     total_budget = 0.90 * 60 * params["tmax"]
 
     model, ctx = _build_model(params, symmetry_break=_ENABLE_SYMMETRY_BREAKING)
-    y, w, G, T = ctx["y"], ctx["w"], ctx["G"], ctx["T"]
-    G_t, G_d, G_td = ctx["G_t"], ctx["G_d"], ctx["G_td"]
-    y_hint, w_hint = _greedy_hint(params, G, T, G_t, G_d, G_td)
-    # y is sparse (see _build_model()'s Vars section) -- only hint the pairs
-    # that actually exist as variables; _greedy_hint() already only places
-    # students into sections they're available for, so this never silently
-    # drops a hint that mattered.
-    for (i, g) in y:
-        model.AddHint(y[i, g], y_hint.get((i, g), 0))
-    for g in G:
-        model.AddHint(w[g], w_hint.get(g, 0))
+    try:
+        warm = feasible_hint(model, ctx, params, verify=False)
+    except Exception:
+        warm = None
+    if warm is not None:
+        for idx, val in warm.items():
+            model.AddHint(model.GetIntVarFromProtoIndex(idx), val)
 
     elapsed_before_search = time.monotonic() - started
     search_budget = max(_MIN_SEARCH_SECONDS, total_budget - elapsed_before_search)
@@ -807,6 +758,7 @@ def _solve_full(params):
     # it just reports FEASIBLE instead of OPTIMAL, same as any time-limited
     # CP-SAT solve.
     solver.parameters.num_search_workers = 8
+    solver.parameters.cp_model_probing_level = 0
     status = solver.Solve(model)
     return solver, ctx, status
 
@@ -838,7 +790,7 @@ def _optimality_gap_pct(solver, status):
 def run_model(params):
     # params["tmax"] is the *total* wall-clock budget for this call (see
     # views.py's SYNC_SOLVE_TMAX_SECONDS), not just the CP-SAT search --
-    # Lambda's 29s cap needs model-building and greedy-hint time bounded
+    # Lambda's 29s cap needs model-building and hint time bounded
     # too. Those steps are deterministic, so _solve_full() measures how
     # long they took and gives the solver whatever's left, instead of the
     # full budget on top (a 50-student roster was seen taking ~29s total
@@ -873,165 +825,160 @@ def run_model(params):
     }
 
 
-def _top_choice_share(solver, ctx):
+def _baseline_from_solution(params, solution):
     """
-    % of individual students who land in a group matching their #1 ranked
-    preference, read directly off the solved y[] values, aggregated by
-    student *type* rather than expanded into individual students.
-
-    Deliberately doesn't go through assign_students(): that function pops
-    students off students_types[i]["students_list"] as it assigns them
-    (see its own docstring), which is only safe to do once per fresh
-    students_types -- fine for run_model()'s single solve, but
-    sensitivity_report() below solves several independent what-if variants
-    of the *same* params in one request, and re-running assign_students()
-    on each would either double-count or crash on an already-drained pool.
-    None of that bookkeeping is needed here anyway: preference rank only
-    depends on (type, group), and each type's population size is already
-    known from students_types[i]["students"], so this sums directly over
-    types instead of individual students.
+    (ctx, model, objective, values) of an assignment {group: [student ids]} the
+    caller already has, or None if it doesn't fit the model built from `params`.
     """
-    y, T, G = ctx["y"], ctx["T"], ctx["G"]
-    priority = ctx["priority"]
-    students_types = ctx["students_types"]
-    total = 0
-    top = 0
-    for i in T:
-        n = students_types[i]["students"]
-        if n <= 0:
-            continue
-        total += n
-        for g in G:
-            if (i, g) not in y:
-                continue
-            placed = solver.Value(y[i, g])
-            if placed and priority.get(i, {}).get(g) == 1:
-                top += placed
-    return (top / total * 100.0) if total else 0.0
+    model, ctx = _build_model(params, symmetry_break=_ENABLE_SYMMETRY_BREAKING)
+    values = solution_values(model, ctx, params, solution)
+    if values is None:
+        return None
+    return ctx, model, objective_value(model, values), values
 
 
-def sensitivity_report(params):
+def _relax_constraints(model, indices):
+    for index in indices:
+        domain = model.Proto().constraints[index].linear.domain
+        domain[0], domain[len(domain) - 1] = -_UNBOUNDED, _UNBOUNDED
+
+
+def sensitivity_report(params, solution=None):
     """
-    "What is each configurable requirement costing you?" -- the
-    feasible-solve counterpart to find_infeasibility_causes() above. That
-    one answers "which bounds together make this impossible"; this one
-    answers "of the bounds you *did* satisfy, which one is the most
-    expensive to keep."
+    Relaxes each user-configurable constraint family (see _candidate_families())
+    on its own, everything else held fixed, and reports how much the objective
+    improves. Gains are in points of BALANCE_CONSTANT, so one point is one
+    unranked placement in the worst-off student type.
 
-    For an already-solvable roster, re-solves once per user-configurable
-    constraint family (the same family list find_infeasibility_causes()
-    tests -- see _candidate_families()) with that one family dropped, and
-    reports how many more students would land their #1 ranked topic if it
-    were relaxed, everything else held fixed. Framed in #1-choice
-    percentage rather than raw objective value on purpose: it's the same
-    unit the Results screen's "Preference outcomes" panel already shows
-    the person, and it's meaningful across every family type (a group-size
-    change and an attribute-balance change aren't otherwise comparable),
-    unlike an internal objective score.
+    The baseline is `solution` ({group: [student ids]}), the assignment the
+    caller already has from run_model(), checked against the model. Without
+    one, or one that does not fit, the baseline is solved with _solve_full().
+    The unrelaxed model is then optimized once from that assignment, which
+    gives a proven lower bound on the objective when it finishes. A family only
+    counts as improving if a solution beats that bound, and as unchanged only
+    if the bound is tight; if the baseline could not be proven optimal, a
+    family that does not beat the bound is reported as unknown.
 
-    IMPORTANT: every what-if trial is warm-started from the baseline's
-    solution. The baseline is solved first, exactly the way run_model()
-    solves (_solve_full(): same greedy hint, same solver settings), on its
-    own bounded budget (_SENSITIVITY_BASELINE_TIME_LIMIT_SECONDS), so its
-    "% got their #1 choice" is the same number the Results panel shows.
-    Its y[]/w[] values then go into each trial as a complete hint. Dropping
-    a family only relaxes the feasible region, so the baseline solution is
-    still feasible in every trial: CP-SAT starts from it and only has to
-    look for improvements, instead of rediscovering a good assignment from
-    scratch inside a short trial limit. Trials are built with the same
-    symmetry-breaking setting as the baseline so the hint satisfies those
-    constraints as well. (Previously the baseline and every trial were
-    cold, unhinted solves of 5s each. On a roster of ~800 students the cold
-    baseline reached 54.8% of students on their #1 choice against 93.7% in
-    the Results panel, and the analysis ran out of time after one family.)
+    Each family is a clone of the baseline model with that family's constraints
+    widened. A feasibility solve with the objective capped just below the
+    bound decides whether the family matters, and a solution found is then
+    minimized further to measure the gain.
 
-    Unlike the infeasibility deletion filter, dropping one family from an
-    already-feasible model can only relax its feasible region -- it can
-    never turn feasible into infeasible -- so every trial here is expected
-    to land on FEASIBLE/OPTIMAL; a trial that times out inconclusive
-    (UNKNOWN within _SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS) is skipped
-    rather than guessed at, same caution as find_infeasibility_causes().
+    The LP dual screen (sensitivity_lp.py) only orders the families, largest
+    dual first; every family is tried while time remains.
 
-    Meant to run as a separate, on-demand call *after* the main solve (see
-    views.sensitivity()) -- never inline with run_model() itself. It's
-    O(number of families) resolves on top of the main solve, which would
-    reopen the exact wall-clock-budget problem run_model() was fixed for
-    (see its docstring) if it ran on every request instead of only when
-    the person asks for it from the Results screen.
-
-    Returns {"baseline_pct": float, "families": [{"label", "gain_points"}, ...]},
-    families sorted most-expensive-first and limited to gain_points > 0.5
-    (keeps solver noise off a UI list) -- or {"baseline_pct": None,
-    "families": []} if the baseline itself doesn't solve, or the overall
-    time budget runs out before it does, or anything else goes wrong.
-    Callers should show "not available" rather than an error in that
-    case, same contract as find_infeasibility_causes() returning [].
+    Returns {"available": True, "families": [{"label", "gain_points"}], "unchecked": int,
+    "tested": int, "total_families": int}. `families` holds only the families
+    that improve the objective, largest gain first; `unchecked` counts those
+    that could not be decided (a trial hit its time limit, the time budget ran
+    out, or the baseline was not proven optimal). Returns
+    {"available": False, "families": []} if the baseline cannot be established
+    or anything else goes wrong.
     """
     try:
-        # Same "compute the shared sets once" approach as
-        # find_infeasibility_causes() -- see that function's comment.
-        G, G_t, G_d, G_td = preprocessing(params)
-        priority = compute_priority(params["students_types"], G_t)
-        precomputed_sets = (G, G_t, G_d, G_td, priority)
-
         started = time.monotonic()
 
-        # Baseline: the same solve run_model() does, on a bounded budget.
-        # _solve_full() reads its budget from params["tmax"] (minutes, scaled
-        # by 0.90*60 -- see its body), so give it a copy with that set.
-        baseline_params = dict(params)
-        baseline_params["tmax"] = _SENSITIVITY_BASELINE_TIME_LIMIT_SECONDS / (0.90 * 60)
-        baseline_solver, baseline_ctx, baseline_status = _solve_full(baseline_params)
-        if baseline_status not in FACTIBLE_STATUSES:
-            return {"baseline_pct": None, "families": []}
-        baseline_share = _top_choice_share(baseline_solver, baseline_ctx)
-
-        # The baseline's solution, as a hint for every trial below.
-        hint_y = {key: baseline_solver.Value(var) for key, var in baseline_ctx["y"].items()}
-        hint_w = {g: baseline_solver.Value(var) for g, var in baseline_ctx["w"].items()}
-
-        def solve_variant(disabled):
-            """
-            Build and solve one what-if trial (`disabled` is the family
-            left out), warm-started from the baseline solution. Relaxing a
-            family can't make that solution infeasible, so CP-SAT begins
-            with a known-good incumbent and only searches for something
-            better within the trial time limit.
-            """
-            model, ctx = _build_model(
-                params, disabled=disabled, symmetry_break=_ENABLE_SYMMETRY_BREAKING,
-                precomputed_sets=precomputed_sets,
+        baseline = _baseline_from_solution(params, solution) if solution else None
+        if baseline is None:
+            baseline_params = dict(params)
+            baseline_params["tmax"] = _SENSITIVITY_BASELINE_TIME_LIMIT_SECONDS / (0.90 * 60)
+            baseline_solver, baseline_ctx, baseline_status = _solve_full(baseline_params)
+            if baseline_status not in FACTIBLE_STATUSES:
+                return {"available": False, "families": []}
+            baseline_model = baseline_ctx["model"]
+            baseline = (
+                baseline_ctx, baseline_model, baseline_solver.ObjectiveValue(),
+                {i: baseline_solver.Value(baseline_model.GetIntVarFromProtoIndex(i))
+                 for i in range(len(baseline_model.Proto().variables))},
             )
-            for key, value in hint_y.items():
-                var = ctx["y"].get(key)
-                if var is not None:
-                    model.AddHint(var, value)
-            for g, value in hint_w.items():
-                var = ctx["w"].get(g)
-                if var is not None:
-                    model.AddHint(var, value)
+        baseline_ctx, baseline_model, baseline_objective, baseline_values = baseline
+
+        def time_left():
+            return _SENSITIVITY_TOTAL_TIME_BUDGET_SECONDS - (time.monotonic() - started)
+
+        def solve_limit():
+            return min(_SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS, time_left())
+
+        def trial_solver(time_limit):
             solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = _SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS
+            solver.parameters.max_time_in_seconds = time_limit
             solver.parameters.num_search_workers = 8
+            solver.parameters.cp_model_probing_level = 0
+            return solver
+
+        def objective_of(model):
+            proto_objective = model.Proto().objective
+            return cp_model.LinearExpr.weighted_sum(
+                [model.GetIntVarFromProtoIndex(v) for v in proto_objective.vars],
+                list(proto_objective.coeffs),
+            )
+
+        def solve_variant(key, objective_bound):
+            """
+            ("better", best objective) when a solution beats `objective_bound`
+            with `key`'s constraints relaxed, ("same", None) when none does,
+            ("unknown", None) on a time limit.
+            """
+            model = baseline_model.clone()
+            model.clear_hints()
+            _relax_constraints(model, baseline_ctx["family_constraints"].get(key, []))
+            objective = objective_of(model)
+            model.Add(objective <= objective_bound)
+            model.ClearObjective()
+            solver = trial_solver(solve_limit())
             status = solver.Solve(model)
-            return solver, ctx, status
+            if status == cp_model.INFEASIBLE:
+                return "same", None
+            if status not in FACTIBLE_STATUSES:
+                return "unknown", None
+            best = solver.Value(objective)
+            for index in range(len(model.Proto().variables)):
+                var = model.GetIntVarFromProtoIndex(index)
+                model.AddHint(var, solver.Value(var))
+            model.Minimize(objective)
+            solver = trial_solver(max(solve_limit(), _SENSITIVITY_MIN_SOLVE_SECONDS))
+            if solver.Solve(model) in FACTIBLE_STATUSES:
+                best = min(best, solver.ObjectiveValue())
+            return "better", best
+
+        control = baseline_model.clone()
+        control.clear_hints()
+        for index, value in baseline_values.items():
+            control.AddHint(control.GetIntVarFromProtoIndex(index), value)
+        control_solver = trial_solver(max(solve_limit(), _SENSITIVITY_MIN_SOLVE_SECONDS))
+        control_status = control_solver.Solve(control)
+        if control_status not in FACTIBLE_STATUSES:
+            return {"available": False, "families": []}
+        baseline_objective = min(baseline_objective, control_solver.ObjectiveValue())
+        lower_bound = control_solver.BestObjectiveBound()
+        proven = baseline_objective - lower_bound < 1
+        cutoff = int(math.ceil(lower_bound - 1e-6)) - 1
 
         families = _candidate_families(params)
-        out = []
+        scores = dual_screen(baseline_ctx["model"], baseline_ctx["family_constraints"])
+        if scores is not None:
+            families = sorted(families, key=lambda f: -scores.get(f[0], 0.0))
+
+        descriptors = _family_descriptors(params)
+        improves = []
+        unchecked = 0
+        tested = 0
         for key, label in families:
-            if time.monotonic() - started + _SENSITIVITY_TRIAL_TIME_LIMIT_SECONDS > _SENSITIVITY_TOTAL_TIME_BUDGET_SECONDS:
-                # Out of time -- stop testing; an untested family is simply
-                # not reported, same "under-report, never fabricate" rule
-                # find_infeasibility_causes() follows.
-                break
-            solver, ctx, status = solve_variant({key})
-            if status not in FACTIBLE_STATUSES:
+            if time_left() < _SENSITIVITY_MIN_SOLVE_SECONDS:
+                unchecked += 1
                 continue
-            share = _top_choice_share(solver, ctx)
-            gain = share - baseline_share
-            if gain > 0.5:
-                out.append({"label": label, "gain_points": round(gain, 1)})
-        out.sort(key=lambda r: -r["gain_points"])
-        return {"baseline_pct": round(baseline_share, 1), "families": out}
+            outcome, best = solve_variant(key, cutoff)
+            tested += 1
+            if outcome == "better":
+                gain = (lower_bound - best) / BALANCE_CONSTANT
+                if gain >= _SENSITIVITY_MIN_GAIN_POINTS:
+                    improves.append({"label": label, "family": descriptors.get(key), "gain_points": round(gain, 2)})
+            elif outcome == "unknown" or not proven:
+                unchecked += 1
+        improves.sort(key=lambda r: -r["gain_points"])
+        return {
+            "available": True, "families": improves, "unchecked": unchecked,
+            "tested": tested, "total_families": len(families),
+        }
     except Exception:
-        return {"baseline_pct": None, "families": []}
+        return {"available": False, "families": []}

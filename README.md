@@ -49,16 +49,16 @@ A few things make it practical at real class sizes:
   preferences are interchangeable, so the model works with one variable
   per (type, group) instead of one per (student, group). This shrinks the
   model considerably before the solver sees it.
-- **Warm start.** A fast greedy heuristic builds an initial assignment
-  and hands it to the solver as a starting point, cutting solve time by
-  about 23% on 400-student instances.
+- **Warm start.** A constructive heuristic builds a complete, feasible
+  assignment (including sections and the sameDay option) and hands it to
+  the solver as a starting point. On an 809-student instance this cuts
+  the solve from about 3.4 s to about 1.2 s.
 - **Infeasibility diagnosis.** When the rules can't all be met, MATE
   re-solves with one group of constraints relaxed at a time and tells the
   instructor which specific rule is the problem.
 - **Sensitivity analysis.** After a successful solve, the same technique
-  shows which rule is costing the most first-choice placements, for
-  example how many more students would get their top topic if the gender
-  balance were relaxed.
+  lists the rules that hold the result back and shows how much it would
+  improve for the least-satisfied students if each were relaxed.
 - **Two solve paths.** Small and medium rosters are solved in seconds with
   Google OR-Tools CP-SAT directly in the request. Large ones are sent to a
   university compute cluster running Gurobi, and the results arrive by

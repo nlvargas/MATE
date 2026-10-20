@@ -187,14 +187,14 @@ def run_model(request):
 
 
 @api_view(['POST'])
-def sensitivity(request):
+def run_sensitivity_analysis(request):
     """
     On-demand "what's each requirement costing you" analysis for the
-    Results screen -- takes the same request body run_model() does and
-    re-solves the roster once per user-configurable constraint family,
-    dropped one at a time, to rank how much each is costing in #1-choice
-    placements. See optimization_cpsat.sensitivity_report()'s docstring
-    for why this has to be a separate, on-demand call rather than
+    Results screen -- takes the same request body run_model() does, plus the
+    `solution` it returned ([{group, students: [ids]}]), and tests each
+    user-configurable constraint family, dropped one at a time, to rank how
+    much each is costing in objective points. See
+    optimization_cpsat.sensitivity_report()'s docstring for why this has to be a separate, on-demand call rather than
     something bundled into run_model() itself (it would reopen the exact
     wall-clock-budget problem run_model() was fixed for -- see that
     function's docstring -- if it ran on every request instead of only
@@ -209,6 +209,11 @@ def sensitivity(request):
     (see run_model()'s "causes" comment).
     """
     params = json.loads(request.body.decode('utf-8'))
+    solution = {
+        group["group"]: group["students"]
+        for group in params.pop("solution", None) or []
+        if isinstance(group, dict) and "group" in group and isinstance(group.get("students"), list)
+    }
     data = create_parms(params)
     estimated_variables = estimate_variable_count(data)
 
@@ -220,7 +225,7 @@ def sensitivity(request):
 
     try:
         from .optimization_cpsat import sensitivity_report
-        report = sensitivity_report(data)
+        report = sensitivity_report(data, solution)
     except ImportError as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(report, status=status.HTTP_200_OK)

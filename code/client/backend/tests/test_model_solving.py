@@ -1,7 +1,7 @@
 """
 Tests for optimization_cpsat.py: building and solving the CP-SAT model --
 feasible solves, infeasibility diagnosis, the sparse y[i, g] optimization,
-the precomputed_sets fast path, and the warm-start hint.
+and the precomputed_sets fast path.
 """
 from ortools.sat.python import cp_model
 
@@ -213,49 +213,9 @@ def test_precomputed_sets_matches_recomputed_sets(params_factory, student_type_f
     assert len(proto_a.constraints) == len(proto_b.constraints)
 
 
-# -------------------- warm-start hint --------------------
-
-def test_greedy_hint_never_exceeds_group_capacity(params_factory, student_type_factory):
-    types = {
-        "T0": student_type_factory("T0", students=6, preferences={"1": "Math"}, a={"mod1": 1}),
-        "T1": student_type_factory("T1", students=6, preferences={"1": "Math"}, a={"mod1": 1}),
-    }
-    params = params_factory(
-        students_types=types,
-        preferences={"Math": {"min": 0, "max": 2}},
-        modules=["mod1"], groups_number=2, upper_number=5,
-    )
-    _model, ctx = cpsat._build_model(params)
-    y_hint, w_hint = cpsat._greedy_hint(params, ctx["G"], ctx["T"], ctx["G_t"], ctx["G_d"], ctx["G_td"])
-
-    fill_per_group = {}
-    for (i, g), count in y_hint.items():
-        fill_per_group[g] = fill_per_group.get(g, 0) + count
-    for g, total in fill_per_group.items():
-        assert total <= params["upper_number"]
-
-
-def test_greedy_hint_only_places_students_in_available_sections(params_factory, student_type_factory):
-    t0 = student_type_factory("T0", students=3, preferences={"1": "Math"}, a={"mod1": 1, "mod2": 0})
-    params = params_factory(
-        students_types={"T0": t0},
-        preferences={"Math": {"min": 0, "max": 2}},
-        modules=["mod1", "mod2"], groups_number=2, upper_number=10,
-    )
-    _model, ctx = cpsat._build_model(params)
-    y_hint, _w_hint = cpsat._greedy_hint(params, ctx["G"], ctx["T"], ctx["G_t"], ctx["G_d"], ctx["G_td"])
-
-    mod2_groups = set(ctx["G_d"]["mod2"])
-    assert not any(g in mod2_groups for (_i, g) in y_hint)
-
-
 # -------------------- sensitivity analysis --------------------
 
-def test_sensitivity_baseline_matches_the_main_solve(params_factory, student_type_factory):
-    # The baseline is solved the way run_model() solves (and every what-if
-    # trial is warm-started from it), so its "% on their #1 choice" has to
-    # agree with a plain run_model() of the same request. A cold 5s baseline
-    # once reported 54.8% against the Results panel's 93.7% on a large roster.
+def test_sensitivity_lists_nothing_when_no_family_changes_the_objective(params_factory, student_type_factory):
     types = {
         "T0": student_type_factory("T0", students=6, preferences={"1": "Math"}),
         "T1": student_type_factory("T1", students=6, preferences={"1": "Physics"}),
@@ -267,8 +227,175 @@ def test_sensitivity_baseline_matches_the_main_solve(params_factory, student_typ
     )
     report = cpsat.sensitivity_report(params)
 
-    assert report["baseline_pct"] == 100.0
+    assert report["available"] is True
     assert report["families"] == []
+    assert report["unchecked"] == 0
+    assert report["tested"] == report["total_families"]
+
+
+def test_sensitivity_does_not_credit_a_family_for_a_baseline_that_was_not_optimal(params_factory, student_type_factory):
+    def params():
+        types = {
+            "T0": student_type_factory("T0", students=6, preferences={"1": "Math"}),
+            "T1": student_type_factory("T1", students=6, preferences={"1": "Physics"}),
+        }
+        return params_factory(
+            students_types=types,
+            preferences={"Math": {"min": 0, "max": 2}, "Physics": {"min": 0, "max": 2}},
+            groups_number=2, lower_number=3, upper_number=9,
+        )
+
+    solution = _solution_of(params())
+    first, second = list(solution)
+    solution[first][:3], solution[second][:3] = solution[second][:3], solution[first][:3]
+    assert cpsat._baseline_from_solution(params(), solution) is not None
+    assert cpsat._baseline_from_solution(params(), solution)[2] > cpsat._baseline_from_solution(params(), _solution_of(params()))[2]
+    report = cpsat.sensitivity_report(params(), solution)
+
+    assert report["available"] is True
+    assert report["families"] == []
+
+
+def _binding_group_size_params(params_factory, student_type_factory):
+    types = {
+        "T0": student_type_factory("T0", students=4, preferences={"1": "Math"}),
+        "T1": student_type_factory("T1", students=4, preferences={"1": "Math"}),
+        "T2": student_type_factory("T2", students=4, preferences={"1": "Physics"}),
+    }
+    return params_factory(
+        students_types=types,
+        preferences={"Math": {"min": 1, "max": 1}, "Physics": {"min": 1, "max": 1}},
+        groups_number=2, lower_number=1, upper_number=6,
+    )
+
+
+def test_sensitivity_reports_only_the_family_that_improves_the_objective(params_factory, student_type_factory):
+    params = _binding_group_size_params(params_factory, student_type_factory)
+    report = cpsat.sensitivity_report(params)
+
+    assert [f["label"] for f in report["families"]] == ["Group size band (1-6 students per group)"]
+    assert report["families"][0]["gain_points"] >= cpsat._SENSITIVITY_MIN_GAIN_POINTS
+    assert report["families"][0]["family"] == {"kind": "group_size", "lo": params["lower_number"], "hi": params["upper_number"]}
+    assert report["total_families"] == 5
+    assert report["unchecked"] == 0
+
+
+def test_sensitivity_gain_is_measured_in_objective_points(params_factory, student_type_factory):
+    params = _binding_group_size_params(params_factory, student_type_factory)
+    solution = _solution_of(_binding_group_size_params(params_factory, student_type_factory))
+    model, ctx = cpsat._build_model(params)
+    baseline = cpsat.objective_value(model, cpsat.solution_values(model, ctx, params, solution))
+
+    relaxed, relaxed_ctx = cpsat._build_model(params, disabled={"group_size"})
+    solver = cp_model.CpSolver()
+    assert solver.Solve(relaxed) == cp_model.OPTIMAL
+    expected = round((baseline - solver.ObjectiveValue()) / cpsat.BALANCE_CONSTANT, 2)
+
+    report = cpsat.sensitivity_report(_binding_group_size_params(params_factory, student_type_factory), solution)
+    group_size = next(f for f in report["families"] if f["label"].startswith("Group size band"))
+    assert group_size["gain_points"] == expected
+
+
+def test_relaxing_a_family_in_place_matches_building_without_it(params_factory, student_type_factory):
+    params = _binding_group_size_params(params_factory, student_type_factory)
+    model, ctx = cpsat._build_model(params)
+
+    def optimum(m):
+        solver = cp_model.CpSolver()
+        solver.parameters.num_search_workers = 1
+        assert solver.Solve(m) == cp_model.OPTIMAL
+        return solver.ObjectiveValue()
+
+    for key, _label in cpsat._candidate_families(params):
+        relaxed = model.clone()
+        cpsat._relax_constraints(relaxed, ctx["family_constraints"].get(key, []))
+        rebuilt, _ = cpsat._build_model(params, disabled={key})
+        assert optimum(relaxed) == optimum(rebuilt), key
+
+
+def _solution_of(params_for_solve):
+    sol = cpsat.run_model(params_for_solve)
+    return {g["group"]: [st["id"] for st in g["students"]] for g in sol["results"]}
+
+
+def test_sensitivity_with_the_runs_own_solution_matches_solving_the_baseline(params_factory, student_type_factory):
+    solution = _solution_of(_binding_group_size_params(params_factory, student_type_factory))
+    fresh = _binding_group_size_params(params_factory, student_type_factory)
+    with_solution = cpsat.sensitivity_report(fresh, solution)
+    without = cpsat.sensitivity_report(_binding_group_size_params(params_factory, student_type_factory))
+
+    assert with_solution["families"] == without["families"]
+
+
+def test_sensitivity_ignores_a_solution_that_does_not_fit_the_model(params_factory, student_type_factory):
+    solution = _solution_of(_binding_group_size_params(params_factory, student_type_factory))
+    first_group = next(iter(solution))
+    solution[first_group] = solution[first_group][:-1]
+    report = cpsat.sensitivity_report(_binding_group_size_params(params_factory, student_type_factory), solution)
+
+    assert report["available"] is True
+    assert [f["label"] for f in report["families"]] == ["Group size band (1-6 students per group)"]
+
+
+def test_family_constraint_tags_match_what_disabling_a_family_removes(params_factory, student_type_factory):
+    types = {
+        "T0": student_type_factory("T0", students=4, preferences={"1": "Math"}, a={"m1": 1, "m2": 1}),
+        "T1": student_type_factory("T1", students=4, preferences={"1": "Physics"}, a={"m1": 1, "m2": 1}),
+    }
+    params = params_factory(
+        students_types=types,
+        preferences={"Math": {"min": 0, "max": 2}, "Physics": {"min": 0, "max": 2}},
+        attributes={
+            "gender": {
+                "M": {"min": 0, "max": 5, "solo": False},
+                "F": {"min": 2, "max": 5, "solo": True},
+            }
+        },
+        students_types_attr={"T0": {"gender:M": 1, "gender:F": 0}, "T1": {"gender:M": 0, "gender:F": 1}},
+        modules=["m1", "m2"], capacity={"m1": 6, "m2": 6},
+        groups_number=2, lower_number=1, upper_number=6,
+    )
+    base_model, base_ctx = cpsat._build_model(params)
+    base_count = len(base_model.Proto().constraints)
+
+    families = cpsat._candidate_families(params)
+    assert families
+    for key, _label in families:
+        dropped_model, _ = cpsat._build_model(params, disabled={key})
+        removed = base_count - len(dropped_model.Proto().constraints)
+        assert len(base_ctx["family_constraints"].get(key, [])) == removed, key
+
+
+def test_dual_screen_flags_the_binding_family_and_falls_back_on_bad_input(params_factory, student_type_factory):
+    from backend.sensitivity_lp import dual_screen
+
+    params = _binding_group_size_params(params_factory, student_type_factory)
+    model, ctx = cpsat._build_model(params)
+    scores = dual_screen(model, ctx["family_constraints"])
+
+    assert scores is not None
+    assert scores["group_size"] > 0
+    assert dual_screen(None, {}) is None
+
+
+def test_dual_screen_works_on_a_roster_with_sections(params_factory, student_type_factory):
+    from backend.sensitivity_lp import dual_screen
+
+    types = {
+        "T0": student_type_factory("T0", students=4, preferences={"1": "Math"}, a={"Mon": 1}),
+        "T1": student_type_factory("T1", students=4, preferences={"1": "Math"}, a={"Mon": 1}),
+        "T2": student_type_factory("T2", students=4, preferences={"1": "Physics"}, a={"Mon": 1}),
+    }
+    params = params_factory(
+        students_types=types,
+        preferences={"Math": {"min": 1, "max": 1}, "Physics": {"min": 1, "max": 1}},
+        modules=["Mon"], groups_number=2, lower_number=1, upper_number=6,
+    )
+    model, ctx = cpsat._build_model(params)
+    scores = dual_screen(model, ctx["family_constraints"])
+
+    assert scores is not None
+    assert scores["group_size"] > 0
 
 
 # -------------------- optimality gap --------------------
