@@ -321,10 +321,25 @@ const STR = {
   },
 };
 
-const I18nContext = createContext({ lang: "en", t: (k) => k, tf: (k) => k, setLang: () => {} });
+const I18nContext = createContext({ lang: "es", t: (k) => k, tf: (k) => k, setLang: () => {} });
 
 export function I18nProvider({ children }) {
-  const [lang, setLang] = useState("en");
+  const [lang, setLangState] = useState(() => {
+    try {
+      return localStorage.getItem("mate-lang") === "en" ? "en" : "es";
+    } catch (e) {
+      return "es";
+    }
+  });
+
+  function setLang(next) {
+    setLangState(next);
+    try {
+      localStorage.setItem("mate-lang", next);
+    } catch (e) {
+      // ignore storage errors
+    }
+  }
 
   function t(key) {
     return (STR[lang] && STR[lang][key]) || (STR.en[key]) || key;

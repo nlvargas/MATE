@@ -27,11 +27,6 @@ function WizardForm() {
   const [runResult, setRunResult] = useState(null);
   const [howOpen, setHowOpen] = useState(false);
 
-  // Keeps the document's declared language in sync with the EN/ES toggle --
-  // templates/index.html ships a static lang="en" for the pre-render/SSR
-  // case, and this is what keeps it accurate once the person switches
-  // languages (screen readers and browser translate/spellcheck both read
-  // this attribute, not the visible text).
   useEffect(() => {
     document.documentElement.lang = lang;
   }, [lang]);
