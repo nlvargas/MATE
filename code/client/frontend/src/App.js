@@ -78,18 +78,23 @@ function WizardForm() {
     <div className="shell">
       <header className="topbar">
         <div className="brand">
-          <div className="brand-mark">M</div>
+          <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M10 12 L22 12 L16 22 Z" fill="none" stroke="var(--accent-2)" strokeWidth="2" strokeLinejoin="round" />
+            <circle cx="10" cy="12" r="5" fill="var(--accent)" />
+            <circle cx="22" cy="12" r="5" fill="var(--accent)" />
+            <circle cx="16" cy="22" r="5" fill="var(--accent)" />
+          </svg>
           <div className="brand-text"><b>{t("appName")}</b><span>{t("appTagline")}</span></div>
         </div>
         <div className="topbar-spacer" />
         <div className="lang-toggle" role="group" aria-label="Language">
-          <button className={lang === "en" ? "active" : ""} onClick={() => setLang("en")}>EN</button>
-          <button className={lang === "es" ? "active" : ""} onClick={() => setLang("es")}>ES</button>
+          <button className={lang === "en" ? "active" : ""} aria-pressed={lang === "en"} lang="en" onClick={() => setLang("en")}>EN</button>
+          <button className={lang === "es" ? "active" : ""} aria-pressed={lang === "es"} lang="es" onClick={() => setLang("es")}>ES</button>
         </div>
       </header>
 
       <div className="body-grid">
-        <nav className="rail">
+        <nav className="rail" aria-label={t("stepsNav")}>
           {steps.map((s) => {
             const done = s.n === STEP_RESULTS ? !!runResult : step > s.n;
             return (
@@ -97,6 +102,7 @@ function WizardForm() {
                 key={s.n}
                 className={`rail-step ${step === s.n ? "active" : ""} ${done ? "done" : ""}`}
                 disabled={!s.unlocked}
+                aria-current={step === s.n ? "step" : undefined}
                 onClick={() => goTo(s.n, s.unlocked)}
               >
                 <div className="rail-num">{done ? "✓" : s.n}</div>
@@ -108,7 +114,7 @@ function WizardForm() {
             );
           })}
 
-          <div className="rail-foot mono" style={{ fontSize: 11, color: "var(--ink-faint)", padding: "10px" }}>
+          <div className="rail-foot mono">
             {tf("railStudents", { count: students.length })}
           </div>
 
@@ -127,7 +133,7 @@ function WizardForm() {
       <footer className="app-footer">
         {t("footerCredit")}{" "}
         <a href="https://compile.cl" target="_blank" rel="noopener noreferrer">Compile</a>
-        {" "}· 2025
+        {" "}· {new Date().getFullYear()}
       </footer>
 
       {howOpen && <HowItWorks onClose={() => setHowOpen(false)} />}

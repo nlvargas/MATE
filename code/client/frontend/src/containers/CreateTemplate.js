@@ -142,10 +142,10 @@ export default function CreateTemplate(props) {
     setStep(step + 1);
   }
 
-  function Switch({ checked, onChange }) {
+  function Switch({ checked, onChange, label }) {
     return (
       <label className="switch">
-        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <input type="checkbox" role="switch" aria-label={label} checked={checked} onChange={(e) => onChange(e.target.checked)} />
         <span className="track" />
       </label>
     );
@@ -177,7 +177,7 @@ export default function CreateTemplate(props) {
           <h3>{t("attributesTitle")}</h3>
           <div className="toggle-row" style={{ gap: 8 }}>
             <span className="t-sub" style={{ maxWidth: 220, textAlign: "right" }}>{t("attributesQuestion")}</span>
-            <Switch checked={haveAttributes} onChange={handleHaveAttributesChange} />
+            <Switch checked={haveAttributes} onChange={handleHaveAttributesChange} label={t("attributesQuestion")} />
           </div>
         </div>
         <p className="card-sub">{t("attributesHelp")}</p>
@@ -198,7 +198,7 @@ export default function CreateTemplate(props) {
           <h3>{t("sectionsTitle")}</h3>
           <div className="toggle-row" style={{ gap: 8 }}>
             <span className="t-sub" style={{ maxWidth: 220, textAlign: "right" }}>{t("sectionsQuestion")}</span>
-            <Switch checked={haveModules} onChange={handleHaveModulesChange} />
+            <Switch checked={haveModules} onChange={handleHaveModulesChange} label={t("sectionsQuestion")} />
           </div>
         </div>
         <p className="card-sub">{t("sectionsHelp")}</p>
@@ -219,7 +219,7 @@ export default function CreateTemplate(props) {
           <h3>{t("topicsTitle")}</h3>
           <div className="toggle-row" style={{ gap: 8 }}>
             <span className="t-sub" style={{ maxWidth: 220, textAlign: "right" }}>{t("topicsQuestion")}</span>
-            <Switch checked={havePreferences} onChange={handleHavePreferencesChange} />
+            <Switch checked={havePreferences} onChange={handleHavePreferencesChange} label={t("topicsQuestion")} />
           </div>
         </div>
         <p className="card-sub">{t("topicsHelp")}</p>
@@ -248,8 +248,7 @@ export default function CreateTemplate(props) {
         </div>
       </div>
 
-      <div className="nav-row">
-        <button className="btn" disabled>{t("back")}</button>
+      <div className="nav-row nav-row-end">
         <button className="btn btn-primary" onClick={next}>{t("next")}</button>
       </div>
     </div></div>
