@@ -8,6 +8,8 @@
     "s3_bucket": "zappa-a1w674h2v",
     "slim_handler": true,
     "domain": "mate.compile.cl",
-    "memory_size": 10240
+    "memory_size": 10240,
+    "keep_warm": true,
+    "keep_warm_expression": "rate(4 minutes)"
   }
 }
