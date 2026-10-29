@@ -10,6 +10,9 @@
     "domain": "mate.compile.cl",
     "memory_size": 10240,
     "keep_warm": true,
-    "keep_warm_expression": "rate(4 minutes)"
+    "keep_warm_expression": "rate(4 minutes)",
+    "ephemeral_storage": {
+      "Size": 2048
+    }
   }
 }
